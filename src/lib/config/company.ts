@@ -1,0 +1,35 @@
+export const company = {
+  name: 'Surfers Paradise',
+  slogan: '20 anos no mercado de acessórios e equipamentos para o Surf',
+  cnpj: '',
+  email: 'contato@surfersparadise.com.br',
+  phone: '',
+  whatsapp: '',
+  address: {
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
+    cep: '',
+  },
+  social: {
+    instagram: '',
+    facebook: '',
+    youtube: '',
+  },
+  businessHours: 'Seg à Sexta das 9:00 às 18:00',
+  url: 'https://surfersparadise.com.br',
+  orderPrefix: 'SP',
+  payment: {
+    maxInstallments: 10,
+    minInstallmentValue: 30,
+    pixDiscountPercent: 10,
+    boletoDiscountPercent: 10,
+  },
+  shipping: {
+    freeShippingMinValue: 299.9,
+    originCep: '',
+  },
+} as const;
