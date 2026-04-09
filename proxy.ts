@@ -5,13 +5,13 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Admin routes — check for auth cookie
-  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
+  if (pathname.startsWith('/admin')) {
     const token =
       request.cookies.get('authjs.session-token') ||
       request.cookies.get('__Secure-authjs.session-token');
 
     if (!token) {
-      return NextResponse.redirect(new URL('/admin/login', request.url));
+      return NextResponse.redirect(new URL('/admin-login', request.url));
     }
   }
 
