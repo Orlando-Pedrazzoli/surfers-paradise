@@ -6,29 +6,131 @@ import Image from 'next/image';
 import toast from 'react-hot-toast';
 import { Upload, X, Plus, Trash2 } from 'lucide-react';
 
+// ═══ PRESET COLORS ═══
+const PRESET_COLORS = [
+  { name: 'Preto', code: '#000000' },
+  { name: 'Branco', code: '#FFFFFF' },
+  { name: 'Cinza', code: '#6B7280' },
+  { name: 'Vermelho', code: '#DC2626' },
+  { name: 'Azul', code: '#2563EB' },
+  { name: 'Verde', code: '#16A34A' },
+  { name: 'Amarelo', code: '#EAB308' },
+  { name: 'Laranja', code: '#EA580C' },
+  { name: 'Rosa', code: '#EC4899' },
+  { name: 'Roxo', code: '#9333EA' },
+  { name: 'Castanho', code: '#78350F' },
+  { name: 'Bege', code: '#D4B896' },
+  { name: 'Turquesa', code: '#14B8A6' },
+  { name: 'Vinho', code: '#792F48' },
+  { name: 'Salmão', code: '#D86546' },
+];
+
+const PRESET_DUAL_COLORS = [
+  { name: 'Preto/Azul', code1: '#000000', code2: '#2096d7' },
+  { name: 'Preto/Cinza', code1: '#000000', code2: '#6a727f' },
+  { name: 'Preto/Musgo', code1: '#000000', code2: '#3b6343' },
+  { name: 'Preto/Verde', code1: '#000000', code2: '#87be47' },
+  { name: 'Preto/Amarelo', code1: '#000000', code2: '#d9c214' },
+  { name: 'Preto/Rosa', code1: '#000000', code2: '#d2336e' },
+  { name: 'Preto/Branco', code1: '#000000', code2: '#dfdfe1' },
+  { name: 'Preto/Vermelho', code1: '#000000', code2: '#dc2333' },
+];
+
+const PRESET_SIZES = [
+  'P',
+  'M',
+  'G',
+  "5'10",
+  "6'0",
+  "6'2",
+  "6'3",
+  "6'4",
+  "6'6",
+  "6'8",
+  "7'0",
+  "7'2",
+  "7'6",
+  "8'0",
+  "8'5",
+  "9'0",
+  "9'2",
+  "9'6",
+  "9'8",
+  "10'0",
+  "10'5",
+  "11'0",
+  "11'6",
+  "12'6",
+  "14'0",
+];
+
+function ColorBall({
+  code1,
+  code2,
+  size = 32,
+  selected = false,
+  onClick,
+  title,
+}: {
+  code1: string;
+  code2?: string;
+  size?: number;
+  selected?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
+  const isDual = code2 && code2 !== code1;
+  const isLight = (c: string) =>
+    ['#FFFFFF', '#FFF', '#ffffff', '#fff', '#F5F5F5', '#FAFAFA'].includes(c);
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      className={`rounded-full transition-all hover:scale-110 ${selected ? 'ring-2 ring-[#FF6600] ring-offset-2' : 'border-2 border-gray-300'}`}
+      style={{ width: size, height: size }}
+      title={title}
+    >
+      {isDual ? (
+        <div
+          className='w-full h-full rounded-full overflow-hidden'
+          style={{
+            background: `linear-gradient(135deg, ${code1} 50%, ${code2} 50%)`,
+            border:
+              isLight(code1) || isLight(code2!) ? '1px solid #d1d5db' : 'none',
+          }}
+        />
+      ) : (
+        <div
+          className='w-full h-full rounded-full'
+          style={{
+            backgroundColor: code1,
+            border: isLight(code1) ? '1px solid #d1d5db' : 'none',
+          }}
+        />
+      )}
+    </button>
+  );
+}
+
 interface CategoryOption {
   _id: string;
   name: string;
   level: number;
 }
-
 interface BrandOption {
   _id: string;
   name: string;
 }
-
 interface VariantOption {
   label: string;
   value: string;
   stock: number;
   sku: string;
 }
-
 interface Variant {
   name: string;
   options: VariantOption[];
 }
-
 interface Specification {
   key: string;
   value: string;
@@ -71,6 +173,17 @@ export default function AdminProdutoNovoPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [specifications, setSpecifications] = useState<Specification[]>([]);
 
+  // ═══ FAMILY — COR E TAMANHO INDEPENDENTES ═══
+  const [productFamily, setProductFamily] = useState('');
+  const [hasColor, setHasColor] = useState(false);
+  const [color, setColor] = useState('');
+  const [colorCode, setColorCode] = useState('#000000');
+  const [isDualColor, setIsDualColor] = useState(false);
+  const [colorCode2, setColorCode2] = useState('#2563EB');
+  const [hasSize, setHasSize] = useState(false);
+  const [sizeValue, setSizeValue] = useState('');
+  const [isMainVariant, setIsMainVariant] = useState(true);
+
   useEffect(() => {
     const fetchData = async () => {
       const [catRes, brandRes] = await Promise.all([
@@ -100,41 +213,33 @@ export default function AdminProdutoNovoPage() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     setUploading(true);
     const newImages: string[] = [];
-
     for (const file of Array.from(files)) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('folder', 'surfers-paradise/products');
-
       try {
         const res = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
         });
         const data = await res.json();
-        if (data.success) {
-          newImages.push(data.url);
-        }
+        if (data.success) newImages.push(data.url);
       } catch {
         toast.error(`Erro ao enviar ${file.name}`);
       }
     }
-
     setForm(prev => ({
       ...prev,
       images: [...prev.images, ...newImages],
       thumbnail: prev.thumbnail || newImages[0] || '',
     }));
     setUploading(false);
-
-    if (newImages.length > 0) {
+    if (newImages.length > 0)
       toast.success(
         `${newImages.length} imagem${newImages.length > 1 ? 'ns' : ''} enviada${newImages.length > 1 ? 's' : ''}!`,
       );
-    }
   };
 
   const removeImage = (index: number) => {
@@ -156,26 +261,36 @@ export default function AdminProdutoNovoPage() {
     toast.success('Thumbnail definida!');
   };
 
-  // Variants
-  const addVariant = () => {
+  const selectPresetColor = (preset: { name: string; code: string }) => {
+    setColor(preset.name);
+    setColorCode(preset.code);
+    setIsDualColor(false);
+  };
+  const selectPresetDualColor = (preset: {
+    name: string;
+    code1: string;
+    code2: string;
+  }) => {
+    setColor(preset.name);
+    setColorCode(preset.code1);
+    setColorCode2(preset.code2);
+    setIsDualColor(true);
+  };
+
+  // Legacy variants
+  const addVariant = () =>
     setVariants(prev => [
       ...prev,
       { name: '', options: [{ label: '', value: '', stock: 0, sku: '' }] },
     ]);
-  };
-
-  const removeVariant = (index: number) => {
+  const removeVariant = (index: number) =>
     setVariants(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const updateVariantName = (index: number, name: string) => {
+  const updateVariantName = (index: number, name: string) =>
     setVariants(prev => prev.map((v, i) => (i === index ? { ...v, name } : v)));
-  };
-
-  const addVariantOption = (variantIndex: number) => {
+  const addVariantOption = (vi: number) =>
     setVariants(prev =>
       prev.map((v, i) =>
-        i === variantIndex
+        i === vi
           ? {
               ...v,
               options: [
@@ -186,60 +301,47 @@ export default function AdminProdutoNovoPage() {
           : v,
       ),
     );
-  };
-
-  const removeVariantOption = (variantIndex: number, optionIndex: number) => {
+  const removeVariantOption = (vi: number, oi: number) =>
     setVariants(prev =>
       prev.map((v, i) =>
-        i === variantIndex
-          ? { ...v, options: v.options.filter((_, oi) => oi !== optionIndex) }
-          : v,
+        i === vi ? { ...v, options: v.options.filter((_, j) => j !== oi) } : v,
       ),
     );
-  };
-
   const updateVariantOption = (
-    variantIndex: number,
-    optionIndex: number,
+    vi: number,
+    oi: number,
     field: keyof VariantOption,
     value: string | number,
-  ) => {
+  ) =>
     setVariants(prev =>
       prev.map((v, i) =>
-        i === variantIndex
+        i === vi
           ? {
               ...v,
-              options: v.options.map((o, oi) =>
-                oi === optionIndex ? { ...o, [field]: value } : o,
+              options: v.options.map((o, j) =>
+                j === oi ? { ...o, [field]: value } : o,
               ),
             }
           : v,
       ),
     );
-  };
 
   // Specifications
-  const addSpecification = () => {
+  const addSpecification = () =>
     setSpecifications(prev => [...prev, { key: '', value: '' }]);
-  };
-
-  const removeSpecification = (index: number) => {
+  const removeSpecification = (index: number) =>
     setSpecifications(prev => prev.filter((_, i) => i !== index));
-  };
-
   const updateSpecification = (
     index: number,
     field: 'key' | 'value',
     value: string,
-  ) => {
+  ) =>
     setSpecifications(prev =>
       prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)),
     );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (
       !form.name ||
       !form.sku ||
@@ -250,11 +352,55 @@ export default function AdminProdutoNovoPage() {
       toast.error('Preencha os campos obrigatórios');
       return;
     }
-
     setSaving(true);
+
+    // Build family fields
+    const familyFields: Record<string, unknown> = { isMainVariant };
+
+    if (productFamily.trim()) {
+      familyFields.productFamily = generateSlug(productFamily);
+    }
+
+    // Determine variantType based on what's active
+    const activeColor = hasColor && color.trim();
+    const activeSize = hasSize && sizeValue.trim();
+
+    if (activeColor && activeSize) {
+      familyFields.variantType = 'both';
+    } else if (activeColor) {
+      familyFields.variantType = 'color';
+    } else if (activeSize) {
+      familyFields.variantType = 'size';
+    } else {
+      familyFields.variantType = '';
+    }
+
+    if (activeColor) {
+      familyFields.color = color;
+      familyFields.colorCode = colorCode;
+      if (isDualColor && colorCode2) familyFields.colorCode2 = colorCode2;
+    }
+
+    if (activeSize) {
+      familyFields.size = sizeValue.trim();
+    }
+
+    // Auto-generate family slug if not provided
+    if (!productFamily.trim() && (activeColor || activeSize)) {
+      let baseName = form.name;
+      if (activeColor)
+        baseName = baseName.replace(new RegExp(color, 'gi'), '').trim();
+      if (activeSize) {
+        const escaped = sizeValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        baseName = baseName.replace(new RegExp(escaped, 'gi'), '').trim();
+      }
+      baseName = baseName.replace(/\s*[-–—]\s*$/, '').trim();
+      if (baseName) familyFields.productFamily = generateSlug(baseName);
+    }
 
     const payload = {
       ...form,
+      ...familyFields,
       tags: form.tags
         .split(',')
         .map(t => t.trim())
@@ -269,15 +415,11 @@ export default function AdminProdutoNovoPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       const data = await res.json();
-
       if (data.success) {
         toast.success('Produto criado com sucesso!');
         router.push('/admin/produtos');
-      } else {
-        toast.error(data.error || 'Erro ao criar produto');
-      }
+      } else toast.error(data.error || 'Erro ao criar produto');
     } catch {
       toast.error('Erro ao criar produto');
     } finally {
@@ -305,10 +447,9 @@ export default function AdminProdutoNovoPage() {
                 value={form.name}
                 onChange={e => handleNameChange(e.target.value)}
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Slug
@@ -317,10 +458,9 @@ export default function AdminProdutoNovoPage() {
                 type='text'
                 value={form.slug}
                 onChange={e => setForm({ ...form, slug: e.target.value })}
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 SKU *
@@ -330,10 +470,9 @@ export default function AdminProdutoNovoPage() {
                 value={form.sku}
                 onChange={e => setForm({ ...form, sku: e.target.value })}
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div className='md:col-span-2'>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Descrição *
@@ -345,7 +484,7 @@ export default function AdminProdutoNovoPage() {
                 }
                 required
                 rows={4}
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
           </div>
@@ -368,10 +507,9 @@ export default function AdminProdutoNovoPage() {
                   setForm({ ...form, price: parseFloat(e.target.value) || 0 })
                 }
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Preço Comparativo (R$)
@@ -387,10 +525,9 @@ export default function AdminProdutoNovoPage() {
                     compareAtPrice: parseFloat(e.target.value) || 0,
                   })
                 }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Custo (R$)
@@ -406,7 +543,7 @@ export default function AdminProdutoNovoPage() {
                     costPrice: parseFloat(e.target.value) || 0,
                   })
                 }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
           </div>
@@ -424,7 +561,7 @@ export default function AdminProdutoNovoPage() {
                 value={form.category}
                 onChange={e => setForm({ ...form, category: e.target.value })}
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               >
                 <option value=''>Selecionar categoria</option>
                 {categories.map(cat => (
@@ -434,7 +571,6 @@ export default function AdminProdutoNovoPage() {
                 ))}
               </select>
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Marca *
@@ -443,7 +579,7 @@ export default function AdminProdutoNovoPage() {
                 value={form.brand}
                 onChange={e => setForm({ ...form, brand: e.target.value })}
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               >
                 <option value=''>Selecionar marca</option>
                 {brands.map(brand => (
@@ -453,7 +589,6 @@ export default function AdminProdutoNovoPage() {
                 ))}
               </select>
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Tags (separadas por vírgula)
@@ -463,7 +598,7 @@ export default function AdminProdutoNovoPage() {
                 value={form.tags}
                 onChange={e => setForm({ ...form, tags: e.target.value })}
                 placeholder='surf, quilha, fcs'
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
           </div>
@@ -472,9 +607,8 @@ export default function AdminProdutoNovoPage() {
         {/* Images */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Imagens</h2>
-
           <div className='mb-4'>
-            <label className='flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors'>
+            <label className='flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#FF6600] hover:bg-orange-50 transition-colors'>
               <Upload size={20} className='text-gray-400' />
               <span className='text-sm text-gray-500'>
                 {uploading ? 'Enviando...' : 'Clique para enviar imagens'}
@@ -489,17 +623,12 @@ export default function AdminProdutoNovoPage() {
               />
             </label>
           </div>
-
           {form.images.length > 0 && (
             <div className='grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3'>
               {form.images.map((url, index) => (
                 <div
                   key={index}
-                  className={`relative group rounded-lg overflow-hidden border-2 ${
-                    form.thumbnail === url
-                      ? 'border-blue-500'
-                      : 'border-gray-200'
-                  }`}
+                  className={`relative group rounded-lg overflow-hidden border-2 ${form.thumbnail === url ? 'border-[#FF6600]' : 'border-gray-200'}`}
                 >
                   <Image
                     src={url}
@@ -512,7 +641,7 @@ export default function AdminProdutoNovoPage() {
                     <button
                       type='button'
                       onClick={() => setAsThumbnail(url)}
-                      className='text-xs bg-white text-gray-800 px-2 py-1 rounded hover:bg-blue-100'
+                      className='text-xs bg-white text-gray-800 px-2 py-1 rounded hover:bg-orange-100'
                     >
                       Thumb
                     </button>
@@ -525,7 +654,7 @@ export default function AdminProdutoNovoPage() {
                     </button>
                   </div>
                   {form.thumbnail === url && (
-                    <span className='absolute top-1 left-1 text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded'>
+                    <span className='absolute top-1 left-1 text-[10px] bg-[#FF6600] text-white px-1.5 py-0.5 rounded'>
                       Thumb
                     </span>
                   )}
@@ -551,10 +680,9 @@ export default function AdminProdutoNovoPage() {
                   setForm({ ...form, stock: parseInt(e.target.value) || 0 })
                 }
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Peso (gramas) *
@@ -567,10 +695,9 @@ export default function AdminProdutoNovoPage() {
                   setForm({ ...form, weight: parseInt(e.target.value) || 0 })
                 }
                 required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Comprimento (cm)
@@ -588,10 +715,9 @@ export default function AdminProdutoNovoPage() {
                     },
                   })
                 }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Largura (cm)
@@ -609,10 +735,9 @@ export default function AdminProdutoNovoPage() {
                     },
                   })
                 }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
-
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Altura (cm)
@@ -630,32 +755,334 @@ export default function AdminProdutoNovoPage() {
                     },
                   })
                 }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
           </div>
         </div>
 
-        {/* Variants */}
+        {/* ═══════════════════════════════════════════════════════════ */}
+        {/* FAMÍLIA DE PRODUTOS — COR E TAMANHO INDEPENDENTES          */}
+        {/* ═══════════════════════════════════════════════════════════ */}
+        <div className='bg-white rounded-lg shadow-sm p-6'>
+          <h2 className='text-lg font-semibold mb-2'>
+            Família de Produtos (Variantes)
+          </h2>
+          <p className='text-sm text-gray-500 mb-4'>
+            Defina cor e/ou tamanho deste produto. Produtos da mesma família
+            permitem alternar entre variantes na página do produto.
+          </p>
+
+          {/* Nome da Família */}
+          <div className='mb-6'>
+            <label className='block text-sm font-medium text-gray-700 mb-1'>
+              Nome da Família
+            </label>
+            <input
+              type='text'
+              value={productFamily}
+              onChange={e => setProductFamily(e.target.value)}
+              placeholder='Ex: Prancha Xanadu (deixe em branco para gerar automaticamente)'
+              className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+            />
+            <p className='text-xs text-gray-400 mt-1'>
+              Produtos com o mesmo nome de família serão agrupados
+            </p>
+          </div>
+
+          {/* ═══ COR (checkbox independente) ═══ */}
+          <div className='border border-gray-200 rounded-lg p-4 mb-4'>
+            <div className='flex items-center gap-3 mb-4'>
+              <input
+                type='checkbox'
+                id='hasColor'
+                checked={hasColor}
+                onChange={e => setHasColor(e.target.checked)}
+                className='w-5 h-5 text-[#FF6600] rounded border-gray-300 focus:ring-[#FF6600] cursor-pointer'
+              />
+              <label
+                htmlFor='hasColor'
+                className='text-base font-medium cursor-pointer'
+              >
+                Este produto tem uma cor específica
+              </label>
+            </div>
+
+            {hasColor && (
+              <div className='bg-gray-50 p-4 rounded-lg space-y-4'>
+                {/* Single vs Dual */}
+                <div className='flex items-center gap-4 p-3 bg-white rounded-lg border border-gray-200'>
+                  <label className='flex items-center gap-2 cursor-pointer'>
+                    <input
+                      type='radio'
+                      name='colorType'
+                      checked={!isDualColor}
+                      onChange={() => setIsDualColor(false)}
+                      className='w-4 h-4 text-[#FF6600] focus:ring-[#FF6600]'
+                    />
+                    <span className='text-sm font-medium'>Cor Única</span>
+                    <div className='w-5 h-5 rounded-full bg-[#FF6600]' />
+                  </label>
+                  <label className='flex items-center gap-2 cursor-pointer'>
+                    <input
+                      type='radio'
+                      name='colorType'
+                      checked={isDualColor}
+                      onChange={() => setIsDualColor(true)}
+                      className='w-4 h-4 text-[#FF6600] focus:ring-[#FF6600]'
+                    />
+                    <span className='text-sm font-medium'>Duas Cores</span>
+                    <div
+                      className='w-5 h-5 rounded-full'
+                      style={{
+                        background:
+                          'linear-gradient(135deg, #000 50%, #2563EB 50%)',
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* Color Name */}
+                <div>
+                  <label className='block text-sm font-medium mb-1'>
+                    Nome da Cor
+                  </label>
+                  <input
+                    type='text'
+                    value={color}
+                    onChange={e => setColor(e.target.value)}
+                    placeholder={isDualColor ? 'Ex: Preto/Azul' : 'Ex: Preto'}
+                    className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                  />
+                </div>
+
+                {!isDualColor ? (
+                  <>
+                    <div>
+                      <label className='block text-sm font-medium mb-1'>
+                        Código da Cor
+                      </label>
+                      <div className='flex items-center gap-3'>
+                        <input
+                          type='color'
+                          value={colorCode}
+                          onChange={e => setColorCode(e.target.value)}
+                          className='w-12 h-10 rounded border border-gray-300 cursor-pointer'
+                        />
+                        <input
+                          type='text'
+                          value={colorCode}
+                          onChange={e => setColorCode(e.target.value)}
+                          placeholder='#000000'
+                          className='flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <p className='text-sm font-medium mb-2'>Cores Rápidas:</p>
+                      <div className='flex flex-wrap gap-2'>
+                        {PRESET_COLORS.map((preset, i) => (
+                          <ColorBall
+                            key={i}
+                            code1={preset.code}
+                            size={32}
+                            selected={colorCode === preset.code && !isDualColor}
+                            onClick={() => selectPresetColor(preset)}
+                            title={preset.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className='grid grid-cols-2 gap-4'>
+                      <div>
+                        <label className='block text-sm font-medium mb-1'>
+                          Cor 1
+                        </label>
+                        <div className='flex items-center gap-2'>
+                          <input
+                            type='color'
+                            value={colorCode}
+                            onChange={e => setColorCode(e.target.value)}
+                            className='w-10 h-10 rounded border border-gray-300 cursor-pointer'
+                          />
+                          <input
+                            type='text'
+                            value={colorCode}
+                            onChange={e => setColorCode(e.target.value)}
+                            className='flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className='block text-sm font-medium mb-1'>
+                          Cor 2
+                        </label>
+                        <div className='flex items-center gap-2'>
+                          <input
+                            type='color'
+                            value={colorCode2}
+                            onChange={e => setColorCode2(e.target.value)}
+                            className='w-10 h-10 rounded border border-gray-300 cursor-pointer'
+                          />
+                          <input
+                            type='text'
+                            value={colorCode2}
+                            onChange={e => setColorCode2(e.target.value)}
+                            className='flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <p className='text-sm font-medium mb-2'>
+                        Combinações Rápidas:
+                      </p>
+                      <div className='flex flex-wrap gap-2'>
+                        {PRESET_DUAL_COLORS.map((preset, i) => (
+                          <ColorBall
+                            key={i}
+                            code1={preset.code1}
+                            code2={preset.code2}
+                            size={32}
+                            selected={
+                              isDualColor &&
+                              colorCode === preset.code1 &&
+                              colorCode2 === preset.code2
+                            }
+                            onClick={() => selectPresetDualColor(preset)}
+                            title={preset.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Preview */}
+                {color && (
+                  <div className='flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200'>
+                    <ColorBall
+                      code1={colorCode}
+                      code2={isDualColor ? colorCode2 : undefined}
+                      size={40}
+                    />
+                    <div>
+                      <p className='font-medium'>{color}</p>
+                      <p className='text-xs text-gray-500 font-mono'>
+                        {isDualColor
+                          ? `${colorCode} / ${colorCode2}`
+                          : colorCode}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ═══ TAMANHO (checkbox independente) ═══ */}
+          <div className='border border-gray-200 rounded-lg p-4 mb-4'>
+            <div className='flex items-center gap-3 mb-4'>
+              <input
+                type='checkbox'
+                id='hasSize'
+                checked={hasSize}
+                onChange={e => setHasSize(e.target.checked)}
+                className='w-5 h-5 text-[#FF6600] rounded border-gray-300 focus:ring-[#FF6600] cursor-pointer'
+              />
+              <label
+                htmlFor='hasSize'
+                className='text-base font-medium cursor-pointer'
+              >
+                Este produto tem um tamanho específico
+              </label>
+            </div>
+
+            {hasSize && (
+              <div className='bg-gray-50 p-4 rounded-lg space-y-4'>
+                <div>
+                  <label className='block text-sm font-medium mb-1'>
+                    Tamanho
+                  </label>
+                  <input
+                    type='text'
+                    value={sizeValue}
+                    onChange={e => setSizeValue(e.target.value)}
+                    placeholder="Ex: 6'0, 7'2, P, M, G"
+                    className='w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                  />
+                </div>
+                <div>
+                  <p className='text-sm font-medium mb-2'>Tamanhos Rápidos:</p>
+                  <div className='flex flex-wrap gap-2'>
+                    {PRESET_SIZES.map(preset => (
+                      <button
+                        key={preset}
+                        type='button'
+                        onClick={() => setSizeValue(preset)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sizeValue === preset ? 'bg-[#FF6600] text-white ring-2 ring-[#FF6600] ring-offset-1' : 'bg-gray-100 text-gray-700 border border-gray-300 hover:border-gray-400'}`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {sizeValue && (
+                  <div className='flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200'>
+                    <span className='bg-[#FF6600] text-white text-sm font-semibold px-3 py-1.5 rounded-lg'>
+                      {sizeValue}
+                    </span>
+                    <p className='font-medium'>Tamanho: {sizeValue}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Produto Principal */}
+          <div className='flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200'>
+            <input
+              type='checkbox'
+              id='isMainVariant'
+              checked={isMainVariant}
+              onChange={e => setIsMainVariant(e.target.checked)}
+              className='w-5 h-5 text-[#FF6600] rounded border-gray-300 focus:ring-[#FF6600] cursor-pointer'
+            />
+            <div>
+              <label
+                htmlFor='isMainVariant'
+                className='text-sm font-medium cursor-pointer'
+              >
+                Produto Principal da Família
+              </label>
+              <p className='text-xs text-gray-600 mt-0.5'>
+                Se marcado, este produto aparece na listagem. Apenas um por
+                família deve ser principal.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Legacy Variants */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <div className='flex items-center justify-between mb-4'>
-            <h2 className='text-lg font-semibold'>Variantes</h2>
+            <h2 className='text-lg font-semibold'>
+              Variantes (Opções internas)
+            </h2>
             <button
               type='button'
               onClick={addVariant}
-              className='flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700'
+              className='flex items-center gap-1 text-sm text-[#FF6600] hover:text-[#e55b00]'
             >
-              <Plus size={16} />
-              Adicionar Variante
+              <Plus size={16} /> Adicionar
             </button>
           </div>
-
           {variants.length === 0 && (
-            <p className='text-sm text-gray-400'>
-              Nenhuma variante adicionada (ex: Tamanho, Cor)
-            </p>
+            <p className='text-sm text-gray-400'>Nenhuma variante adicionada</p>
           )}
-
           {variants.map((variant, vi) => (
             <div key={vi} className='border rounded-lg p-4 mb-4'>
               <div className='flex items-center gap-3 mb-3'>
@@ -663,8 +1090,8 @@ export default function AdminProdutoNovoPage() {
                   type='text'
                   value={variant.name}
                   onChange={e => updateVariantName(vi, e.target.value)}
-                  placeholder='Nome da variante (ex: Tamanho)'
-                  className='flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm'
+                  placeholder='Nome da variante'
+                  className='flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                 />
                 <button
                   type='button'
@@ -674,7 +1101,6 @@ export default function AdminProdutoNovoPage() {
                   <Trash2 size={16} />
                 </button>
               </div>
-
               {variant.options.map((opt, oi) => (
                 <div key={oi} className='grid grid-cols-5 gap-2 mb-2'>
                   <input
@@ -683,8 +1109,8 @@ export default function AdminProdutoNovoPage() {
                     onChange={e =>
                       updateVariantOption(vi, oi, 'label', e.target.value)
                     }
-                    placeholder='Label (M)'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    placeholder='Label'
+                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
                   />
                   <input
                     type='text'
@@ -692,8 +1118,8 @@ export default function AdminProdutoNovoPage() {
                     onChange={e =>
                       updateVariantOption(vi, oi, 'value', e.target.value)
                     }
-                    placeholder='Valor (m)'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    placeholder='Valor'
+                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
                   />
                   <input
                     type='number'
@@ -707,7 +1133,7 @@ export default function AdminProdutoNovoPage() {
                       )
                     }
                     placeholder='Estoque'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
                   />
                   <input
                     type='text'
@@ -716,7 +1142,7 @@ export default function AdminProdutoNovoPage() {
                       updateVariantOption(vi, oi, 'sku', e.target.value)
                     }
                     placeholder='SKU'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
                   />
                   <button
                     type='button'
@@ -727,11 +1153,10 @@ export default function AdminProdutoNovoPage() {
                   </button>
                 </div>
               ))}
-
               <button
                 type='button'
                 onClick={() => addVariantOption(vi)}
-                className='text-xs text-blue-600 hover:text-blue-700 mt-1'
+                className='text-xs text-[#FF6600] mt-1'
               >
                 + Adicionar opção
               </button>
@@ -746,34 +1171,29 @@ export default function AdminProdutoNovoPage() {
             <button
               type='button'
               onClick={addSpecification}
-              className='flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700'
+              className='flex items-center gap-1 text-sm text-[#FF6600] hover:text-[#e55b00]'
             >
-              <Plus size={16} />
-              Adicionar
+              <Plus size={16} /> Adicionar
             </button>
           </div>
-
           {specifications.length === 0 && (
-            <p className='text-sm text-gray-400'>
-              Nenhuma especificação (ex: Material, Sistema de Quilha)
-            </p>
+            <p className='text-sm text-gray-400'>Nenhuma especificação</p>
           )}
-
           {specifications.map((spec, i) => (
             <div key={i} className='grid grid-cols-5 gap-2 mb-2'>
               <input
                 type='text'
                 value={spec.key}
                 onChange={e => updateSpecification(i, 'key', e.target.value)}
-                placeholder='Chave (Material)'
-                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                placeholder='Chave'
+                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm'
               />
               <input
                 type='text'
                 value={spec.value}
                 onChange={e => updateSpecification(i, 'value', e.target.value)}
-                placeholder='Valor (Fibra de Carbono)'
-                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                placeholder='Valor'
+                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm'
               />
               <button
                 type='button'
@@ -795,7 +1215,7 @@ export default function AdminProdutoNovoPage() {
                 type='checkbox'
                 checked={form.isActive}
                 onChange={e => setForm({ ...form, isActive: e.target.checked })}
-              />
+              />{' '}
               Ativo
             </label>
             <label className='flex items-center gap-2 text-sm'>
@@ -805,7 +1225,7 @@ export default function AdminProdutoNovoPage() {
                 onChange={e =>
                   setForm({ ...form, isFeatured: e.target.checked })
                 }
-              />
+              />{' '}
               Destaque
             </label>
             <label className='flex items-center gap-2 text-sm'>
@@ -815,7 +1235,7 @@ export default function AdminProdutoNovoPage() {
                 onChange={e =>
                   setForm({ ...form, isNewArrival: e.target.checked })
                 }
-              />
+              />{' '}
               Novidade
             </label>
             <label className='flex items-center gap-2 text-sm'>
@@ -823,7 +1243,7 @@ export default function AdminProdutoNovoPage() {
                 type='checkbox'
                 checked={form.isOnSale}
                 onChange={e => setForm({ ...form, isOnSale: e.target.checked })}
-              />
+              />{' '}
               Em Promoção
             </label>
             {form.isOnSale && (
@@ -840,7 +1260,7 @@ export default function AdminProdutoNovoPage() {
                       salePercentage: parseInt(e.target.value) || 0,
                     })
                   }
-                  className='w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                  className='w-20 px-2 py-1 border border-gray-300 rounded text-sm'
                 />
               </div>
             )}
@@ -860,7 +1280,7 @@ export default function AdminProdutoNovoPage() {
                 value={form.seoTitle}
                 onChange={e => setForm({ ...form, seoTitle: e.target.value })}
                 placeholder='Deixe vazio para usar o nome do produto'
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
             <div>
@@ -873,8 +1293,8 @@ export default function AdminProdutoNovoPage() {
                   setForm({ ...form, seoDescription: e.target.value })
                 }
                 rows={2}
-                placeholder='Deixe vazio para usar a descrição do produto'
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+                placeholder='Deixe vazio para usar a descrição'
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
             </div>
           </div>
@@ -885,7 +1305,7 @@ export default function AdminProdutoNovoPage() {
           <button
             type='submit'
             disabled={saving}
-            className='px-6 py-2.5 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+            className='px-6 py-2.5 bg-[#FF6600] text-white font-medium rounded-md hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
           >
             {saving ? 'Salvando...' : 'Criar Produto'}
           </button>

@@ -52,6 +52,16 @@ export interface IProduct {
   averageRating: number;
   reviewCount: number;
   soldCount: number;
+
+  // ═══ FAMILY SYSTEM ═══
+  productFamily?: string;
+  variantType?: 'color' | 'size' | 'both';
+  color?: string;
+  colorCode?: string;
+  colorCode2?: string;
+  size?: string;
+  isMainVariant: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }

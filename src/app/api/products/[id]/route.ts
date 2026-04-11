@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/connect';
 import Product from '@/lib/models/Product';
+import Category from '@/lib/models/Category';
+import Brand from '@/lib/models/Brand';
+
+// Force model registration for populate
+const _deps = [Category, Brand];
+void _deps;
 
 // GET — single product by ID
 export async function GET(

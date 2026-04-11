@@ -53,6 +53,19 @@ const productSchema = new Schema<IProduct>(
     averageRating: { type: Number, default: 0 },
     reviewCount: { type: Number, default: 0 },
     soldCount: { type: Number, default: 0 },
+
+    // ═══ FAMILY SYSTEM ═══
+    productFamily: { type: String, default: '', index: true },
+    variantType: {
+      type: String,
+      enum: ['color', 'size', 'both', ''],
+      default: '',
+    },
+    color: { type: String, default: '' },
+    colorCode: { type: String, default: '' },
+    colorCode2: { type: String, default: '' },
+    size: { type: String, default: '' },
+    isMainVariant: { type: Boolean, default: true },
   },
   { timestamps: true },
 );
@@ -62,6 +75,7 @@ productSchema.index({ category: 1 });
 productSchema.index({ brand: 1 });
 productSchema.index({ isActive: 1, isFeatured: 1 });
 productSchema.index({ tags: 1 });
+productSchema.index({ productFamily: 1, isMainVariant: 1 });
 productSchema.index({ name: 'text', tags: 'text', description: 'text' });
 
 const Product: Model<IProduct> =

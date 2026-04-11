@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/connect';
 import Product from '@/lib/models/Product';
+import Category from '@/lib/models/Category';
+import Brand from '@/lib/models/Brand';
+
+// Force model registration for populate
+const _deps = [Category, Brand];
+void _deps;
 
 // GET — list products with pagination, filters, search
 export async function GET(request: NextRequest) {
@@ -15,6 +21,7 @@ export async function GET(request: NextRequest) {
     const brand = searchParams.get('brand') || '';
     const isActive = searchParams.get('isActive');
     const sort = searchParams.get('sort') || '-createdAt';
+    const admin = searchParams.get('admin') === 'true';
 
     const filter: Record<string, unknown> = {};
 
@@ -30,6 +37,13 @@ export async function GET(request: NextRequest) {
     if (brand) filter.brand = brand;
     if (isActive !== null && isActive !== undefined && isActive !== '') {
       filter.isActive = isActive === 'true';
+    }
+
+    // ═══ FAMILY SYSTEM ═══
+    // Public listing: only show main variants (or products without family)
+    // Admin listing: show all products
+    if (!admin) {
+      filter.isMainVariant = true;
     }
 
     const skip = (page - 1) * limit;

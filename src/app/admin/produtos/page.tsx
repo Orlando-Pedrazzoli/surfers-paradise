@@ -29,6 +29,14 @@ interface ProductItem {
   category: { _id: string; name: string } | null;
   brand: { _id: string; name: string } | null;
   createdAt: string;
+  // ═══ FAMILY FIELDS ═══
+  productFamily?: string;
+  variantType?: 'color' | 'size';
+  color?: string;
+  colorCode?: string;
+  colorCode2?: string;
+  size?: string;
+  isMainVariant?: boolean;
 }
 
 interface Pagination {
@@ -57,6 +65,7 @@ export default function AdminProdutosPage() {
         page: page.toString(),
         limit: '20',
         sort: '-createdAt',
+        admin: 'true', // ═══ SHOW ALL PRODUCTS INCLUDING NON-MAIN VARIANTS ═══
       });
       if (query) params.set('search', query);
 
@@ -111,7 +120,7 @@ export default function AdminProdutosPage() {
   if (loading && products.length === 0) {
     return (
       <div className='flex items-center justify-center h-64'>
-        <div className='h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600' />
+        <div className='h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-[#FF6600]' />
       </div>
     );
   }
@@ -122,7 +131,7 @@ export default function AdminProdutosPage() {
         <h1 className='text-2xl font-bold'>Produtos</h1>
         <Link
           href='/admin/produtos/novo'
-          className='flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+          className='flex items-center gap-2 px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
         >
           <Plus size={18} />
           Novo Produto
@@ -141,7 +150,7 @@ export default function AdminProdutosPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder='Buscar por nome, SKU ou tag...'
-              className='w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500'
+              className='w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
             />
           </div>
           <button
@@ -169,19 +178,16 @@ export default function AdminProdutosPage() {
                       Produto
                     </th>
                     <th className='text-left p-4 font-medium text-gray-600'>
-                      SKU
+                      Cor / Tamanho
+                    </th>
+                    <th className='text-left p-4 font-medium text-gray-600'>
+                      Categoria
                     </th>
                     <th className='text-left p-4 font-medium text-gray-600'>
                       Preço
                     </th>
                     <th className='text-left p-4 font-medium text-gray-600'>
                       Estoque
-                    </th>
-                    <th className='text-left p-4 font-medium text-gray-600'>
-                      Categoria
-                    </th>
-                    <th className='text-left p-4 font-medium text-gray-600'>
-                      Marca
                     </th>
                     <th className='text-left p-4 font-medium text-gray-600'>
                       Status
@@ -192,108 +198,174 @@ export default function AdminProdutosPage() {
                   </tr>
                 </thead>
                 <tbody className='divide-y'>
-                  {products.map(product => (
-                    <tr key={product._id} className='hover:bg-gray-50'>
-                      <td className='p-4'>
-                        <div className='flex items-center gap-3'>
-                          {product.images[0] ? (
-                            <Image
-                              src={product.images[0]}
-                              alt={product.name}
-                              width={48}
-                              height={48}
-                              className='rounded object-cover'
-                            />
-                          ) : (
-                            <div className='w-12 h-12 bg-gray-100 rounded flex items-center justify-center'>
-                              <Package size={16} className='text-gray-400' />
+                  {products.map(product => {
+                    const isLight = (c: string) =>
+                      ['#FFFFFF', '#FFF', '#ffffff', '#fff'].includes(c);
+                    const isDual =
+                      product.colorCode2 &&
+                      product.colorCode2 !== product.colorCode;
+
+                    return (
+                      <tr key={product._id} className='hover:bg-gray-50'>
+                        {/* Product Name + Image + SKU + Weight + Family Badge */}
+                        <td className='p-4'>
+                          <div className='flex items-center gap-3'>
+                            {product.images[0] ? (
+                              <Image
+                                src={product.images[0]}
+                                alt={product.name}
+                                width={48}
+                                height={48}
+                                className='rounded object-cover'
+                              />
+                            ) : (
+                              <div className='w-12 h-12 bg-gray-100 rounded flex items-center justify-center'>
+                                <Package size={16} className='text-gray-400' />
+                              </div>
+                            )}
+                            <div>
+                              <div className='flex items-center gap-2'>
+                                <p className='font-medium text-gray-900 line-clamp-1'>
+                                  {product.name}
+                                </p>
+                                {/* P = Principal, V = Variante */}
+                                {product.productFamily && (
+                                  <span
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                      product.isMainVariant
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-gray-100 text-gray-500'
+                                    }`}
+                                  >
+                                    {product.isMainVariant ? 'P' : 'V'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className='text-xs text-gray-400'>
+                                {product.sku}
+                              </p>
                             </div>
-                          )}
-                          <div>
-                            <p className='font-medium text-gray-900 line-clamp-1'>
-                              {product.name}
-                            </p>
-                            <p className='text-xs text-gray-400'>
-                              /{product.slug}
-                            </p>
                           </div>
-                        </div>
-                      </td>
-                      <td className='p-4 text-gray-600'>{product.sku}</td>
-                      <td className='p-4'>
-                        <div>
-                          <p className='font-medium'>
-                            {formatPrice(product.price)}
-                          </p>
-                          {product.compareAtPrice > 0 && (
-                            <p className='text-xs text-gray-400 line-through'>
-                              {formatPrice(product.compareAtPrice)}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className='p-4'>
-                        <span
-                          className={`font-medium ${
-                            product.stock <= 0
-                              ? 'text-red-600'
-                              : product.stock <= 5
-                                ? 'text-orange-500'
-                                : 'text-green-600'
-                          }`}
-                        >
-                          {product.stock}
-                        </span>
-                      </td>
-                      <td className='p-4 text-gray-600'>
-                        {product.category?.name || '—'}
-                      </td>
-                      <td className='p-4 text-gray-600'>
-                        {product.brand?.name || '—'}
-                      </td>
-                      <td className='p-4'>
-                        <div className='flex flex-wrap gap-1'>
-                          {product.isActive ? (
-                            <span className='text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded'>
-                              Ativo
+                        </td>
+
+                        {/* Color / Size */}
+                        <td className='p-4'>
+                          {product.variantType === 'color' &&
+                          product.colorCode ? (
+                            <div className='flex items-center gap-2'>
+                              <span
+                                className='w-6 h-6 rounded-full border border-gray-300 flex-shrink-0'
+                                style={
+                                  isDual
+                                    ? {
+                                        background: `linear-gradient(135deg, ${product.colorCode} 50%, ${product.colorCode2} 50%)`,
+                                        border:
+                                          isLight(product.colorCode!) ||
+                                          isLight(product.colorCode2!)
+                                            ? '1px solid #d1d5db'
+                                            : undefined,
+                                      }
+                                    : {
+                                        backgroundColor: product.colorCode,
+                                        border: isLight(product.colorCode!)
+                                          ? '1px solid #d1d5db'
+                                          : undefined,
+                                      }
+                                }
+                              />
+                              <div>
+                                <p className='text-sm text-gray-700'>
+                                  {product.color}
+                                </p>
+                                <p className='text-[10px] text-gray-400'>
+                                  {isDual ? 'Bicolor' : 'Cor'}
+                                </p>
+                              </div>
+                            </div>
+                          ) : product.variantType === 'size' && product.size ? (
+                            <span className='inline-block bg-gray-100 text-gray-700 text-sm font-medium px-2.5 py-1 rounded border border-gray-300'>
+                              {product.size}
                             </span>
                           ) : (
-                            <span className='text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded'>
-                              Inativo
-                            </span>
+                            <span className='text-gray-300'>—</span>
                           )}
-                          {product.isFeatured && (
-                            <span className='text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded'>
-                              Destaque
-                            </span>
-                          )}
-                          {product.isOnSale && (
-                            <span className='text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded'>
-                              Promoção
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className='p-4 text-right'>
-                        <div className='flex items-center justify-end gap-2'>
-                          <Link
-                            href={`/admin/produtos/${product._id}`}
-                            className='p-2 text-gray-400 hover:text-blue-600 transition-colors'
+                        </td>
+
+                        {/* Category */}
+                        <td className='p-4 text-gray-600'>
+                          {product.category?.name || '—'}
+                        </td>
+
+                        {/* Price */}
+                        <td className='p-4'>
+                          <div>
+                            <p className='font-medium'>
+                              {formatPrice(product.price)}
+                            </p>
+                            {product.compareAtPrice > 0 && (
+                              <p className='text-xs text-gray-400 line-through'>
+                                {formatPrice(product.compareAtPrice)}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Stock */}
+                        <td className='p-4'>
+                          <span
+                            className={`font-medium ${product.stock <= 0 ? 'text-red-600' : product.stock <= 5 ? 'text-orange-500' : 'text-green-600'}`}
                           >
-                            <Pencil size={16} />
-                          </Link>
-                          <button
-                            onClick={() =>
-                              handleDelete(product._id, product.name)
-                            }
-                            className='p-2 text-gray-400 hover:text-red-600 transition-colors'
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {product.stock}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className='p-4'>
+                          <div className='flex flex-wrap gap-1'>
+                            {product.isActive ? (
+                              <span className='text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded'>
+                                Ativo
+                              </span>
+                            ) : (
+                              <span className='text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded'>
+                                Inativo
+                              </span>
+                            )}
+                            {product.isFeatured && (
+                              <span className='text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded'>
+                                Destaque
+                              </span>
+                            )}
+                            {product.isOnSale && (
+                              <span className='text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded'>
+                                Promoção
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td className='p-4 text-right'>
+                          <div className='flex items-center justify-end gap-2'>
+                            <Link
+                              href={`/admin/produtos/${product._id}`}
+                              className='p-2 text-gray-400 hover:text-[#FF6600] transition-colors'
+                            >
+                              <Pencil size={16} />
+                            </Link>
+                            <button
+                              onClick={() =>
+                                handleDelete(product._id, product.name)
+                              }
+                              className='p-2 text-gray-400 hover:text-red-600 transition-colors'
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -307,10 +379,7 @@ export default function AdminProdutosPage() {
                 <div className='flex gap-2'>
                   <button
                     onClick={() =>
-                      setPagination(prev => ({
-                        ...prev,
-                        page: prev.page - 1,
-                      }))
+                      setPagination(prev => ({ ...prev, page: prev.page - 1 }))
                     }
                     disabled={pagination.page <= 1}
                     className='p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
@@ -319,10 +388,7 @@ export default function AdminProdutosPage() {
                   </button>
                   <button
                     onClick={() =>
-                      setPagination(prev => ({
-                        ...prev,
-                        page: prev.page + 1,
-                      }))
+                      setPagination(prev => ({ ...prev, page: prev.page + 1 }))
                     }
                     disabled={pagination.page >= pagination.pages}
                     className='p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
