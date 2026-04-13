@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Search, User, ShoppingCart, Menu, X, ChevronDown } from 'lucide-react';
+import { Search, User, Menu, X, ChevronDown } from 'lucide-react';
 import { mainCategories } from '@/lib/config/navigation';
+import CartIcon from '@/components/layout/CartIcon';
 
 interface SubCategory {
   _id: string;
@@ -18,7 +19,6 @@ interface CatalogData {
   brands: { _id: string; name: string; slug: string }[];
 }
 
-// Mega-menu images per category slug
 const megaImages: Record<string, string> = {
   pranchas: '/images/mega-pranchas.jpg',
   quilhas: '/images/mega-quilhas.jpg',
@@ -39,7 +39,6 @@ export default function Navbar() {
   const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch catalog data for subcategories
   useEffect(() => {
     const fetchCatalog = async () => {
       try {
@@ -60,13 +59,11 @@ export default function Navbar() {
     }
   };
 
-  // Get slug from href (e.g. "/categoria/quilhas" -> "quilhas")
   const getSlugFromHref = (href: string) => {
     const parts = href.split('/');
     return parts[parts.length - 1];
   };
 
-  // Get subcategories for a given category slug
   const getSubcategories = (slug: string): SubCategory[] => {
     if (!catalog) return [];
     const parent = catalog.categories.find(c => c.slug === slug);
@@ -74,7 +71,6 @@ export default function Navbar() {
     return catalog.categories.filter(c => c.parent === parent._id);
   };
 
-  // Hover handlers with delay to prevent flicker
   const handleMouseEnter = (slug: string) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setActiveMenu(slug);
@@ -86,7 +82,6 @@ export default function Navbar() {
     }, 150);
   };
 
-  // Split subcategories into columns of 5
   const splitIntoColumns = (items: SubCategory[], perColumn: number = 5) => {
     const columns: SubCategory[][] = [];
     for (let i = 0; i < items.length; i += perColumn) {
@@ -97,11 +92,9 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Main Header */}
       <header className='bg-white border-b border-gray-200 sticky top-0 z-50'>
         <div className='max-w-7xl mx-auto px-4'>
           <div className='flex items-center justify-between h-16 md:h-20 gap-4'>
-            {/* Mobile menu button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className='md:hidden p-2 text-gray-600'
@@ -109,7 +102,6 @@ export default function Navbar() {
               {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
 
-            {/* Logo */}
             <Link href='/' className='flex-shrink-0'>
               <div className='flex items-center gap-2'>
                 <Image
@@ -130,7 +122,6 @@ export default function Navbar() {
               </div>
             </Link>
 
-            {/* Search Bar */}
             <form
               onSubmit={handleSearch}
               className='hidden md:flex flex-1 max-w-xl mx-8'
@@ -152,7 +143,6 @@ export default function Navbar() {
               </div>
             </form>
 
-            {/* Right Actions */}
             <div className='flex items-center gap-3 sm:gap-5'>
               <Link
                 href='/login'
@@ -165,19 +155,10 @@ export default function Navbar() {
                 </div>
               </Link>
 
-              <Link
-                href='/carrinho'
-                className='relative flex items-center gap-1 text-gray-600 hover:text-[#FF6600] transition-colors'
-              >
-                <ShoppingCart size={22} />
-                <span className='absolute -top-1 -right-2 bg-[#FF6600] text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center'>
-                  0
-                </span>
-              </Link>
+              <CartIcon />
             </div>
           </div>
 
-          {/* Mobile Search */}
           <form onSubmit={handleSearch} className='md:hidden pb-3'>
             <div className='relative'>
               <input
@@ -197,7 +178,6 @@ export default function Navbar() {
           </form>
         </div>
 
-        {/* ═══ CATEGORY NAV BAR WITH MEGA-MENU ═══ */}
         <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
             <ul className='flex items-center justify-center gap-0'>
@@ -234,7 +214,6 @@ export default function Navbar() {
             </ul>
           </div>
 
-          {/* ═══ MEGA-MENU DROPDOWN ═══ */}
           {activeMenu && (
             <div
               className='absolute left-0 right-0 bg-white border-t border-gray-200 shadow-xl z-50'
@@ -245,7 +224,6 @@ export default function Navbar() {
             >
               <div className='max-w-7xl mx-auto px-4 py-6'>
                 <div className='flex gap-8'>
-                  {/* Subcategories in columns */}
                   <div className='flex-1'>
                     <div className='flex gap-8'>
                       {splitIntoColumns(getSubcategories(activeMenu)).map(
@@ -265,8 +243,6 @@ export default function Navbar() {
                         ),
                       )}
                     </div>
-
-                    {/* View All link */}
                     <Link
                       href={`/categoria/${activeMenu}`}
                       className='inline-block mt-4 text-sm font-semibold text-[#FF6600] hover:text-[#e55b00] transition-colors'
@@ -276,7 +252,6 @@ export default function Navbar() {
                     </Link>
                   </div>
 
-                  {/* Promo Image */}
                   {megaImages[activeMenu] && (
                     <div className='hidden lg:block w-[300px] flex-shrink-0'>
                       <Link
@@ -301,7 +276,6 @@ export default function Navbar() {
         </nav>
       </header>
 
-      {/* ═══ MOBILE MENU WITH EXPANDABLE CATEGORIES ═══ */}
       {mobileMenuOpen && (
         <div className='fixed inset-0 z-40 md:hidden'>
           <div
@@ -311,7 +285,7 @@ export default function Navbar() {
           <div className='absolute left-0 top-0 bottom-0 w-72 bg-white shadow-xl overflow-y-auto'>
             <div className='p-4 border-b bg-gray-900'>
               <p className='text-white font-bold'>SURFERS PARADISE</p>
-              <p className='text-gray-400 text-xs'>Board Shop</p>
+              <p className='text-gray-400 text-xs'>Authentic Board Shop</p>
             </div>
             <nav className='py-2'>
               {mainCategories.map(cat => {

@@ -12,7 +12,7 @@ export default function ShopLayout({
     <>
       <AnnouncementBar />
       <Navbar />
-      <main className='min-h-screen'>{children}</main>
+      {children}
       <Footer />
       <WhatsAppButton />
     </>

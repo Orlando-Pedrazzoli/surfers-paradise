@@ -21,6 +21,8 @@ import {
   calculatePixPrice,
 } from '@/lib/utils/installments';
 import ProductCard from '@/components/product/ProductCard';
+import { useCart } from '@/lib/context/CartProvider';
+import AddToCartModal from '@/components/checkout/AddToCartModal';
 
 interface ProductData {
   _id: string;
@@ -50,9 +52,8 @@ interface ProductData {
   salePercentage?: number;
   averageRating: number;
   reviewCount: number;
-  // ═══ FAMILY FIELDS ═══
   productFamily?: string;
-  variantType?: 'color' | 'size';
+  variantType?: 'color' | 'size' | 'both';
   color?: string;
   colorCode?: string;
   colorCode2?: string;
@@ -68,7 +69,7 @@ interface FamilyProduct {
   compareAtPrice?: number;
   images: string[];
   thumbnail?: string;
-  variantType?: 'color' | 'size';
+  variantType?: 'color' | 'size' | 'both';
   color?: string;
   colorCode?: string;
   colorCode2?: string;
@@ -90,7 +91,7 @@ interface RelatedProduct {
   isFeatured?: boolean;
   salePercentage?: number;
   productFamily?: string;
-  variantType?: 'color' | 'size';
+  variantType?: 'color' | 'size' | 'both';
   color?: string;
   colorCode?: string;
   colorCode2?: string;
@@ -105,6 +106,7 @@ export default function ProductDetailPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
+  const { addToCart } = useCart();
   const [product, setProduct] = useState<ProductData | null>(null);
   const [familyProducts, setFamilyProducts] = useState<FamilyProduct[]>([]);
   const [related, setRelated] = useState<RelatedProduct[]>([]);
@@ -116,6 +118,7 @@ export default function ProductDetailPage({
   >({});
   const [isFavorite, setIsFavorite] = useState(false);
   const [thumbStart, setThumbStart] = useState(0);
+  const [showCartModal, setShowCartModal] = useState(false);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -165,7 +168,6 @@ export default function ProductDetailPage({
   const maxThumbs = 5;
   const visibleThumbs = images.slice(thumbStart, thumbStart + maxThumbs);
 
-  // Family variants
   const colorFamilyProducts = familyProducts.filter(
     fp => ['color', 'both'].includes(fp.variantType || '') && fp.colorCode,
   );
@@ -174,7 +176,24 @@ export default function ProductDetailPage({
   );
 
   const handleAddToCart = () => {
-    toast.success('Produto adicionado ao carrinho!');
+    addToCart(
+      {
+        productId: product._id,
+        name: product.name,
+        slug: product.slug,
+        price: product.price,
+        compareAtPrice: product.compareAtPrice,
+        image: product.images[0] || '',
+        sku: product.sku,
+        color: product.color,
+        colorCode: product.colorCode,
+        size: product.size,
+        weight: product.weight,
+        stock: product.stock,
+      },
+      quantity,
+    );
+    setShowCartModal(true);
   };
 
   const handleShare = () => {
@@ -204,6 +223,12 @@ export default function ProductDetailPage({
 
   return (
     <div className='max-w-7xl mx-auto px-4 py-4'>
+      {/* Add to Cart Modal */}
+      <AddToCartModal
+        isOpen={showCartModal}
+        onClose={() => setShowCartModal(false)}
+      />
+
       {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <Link href='/' className='hover:text-[#FF6600]'>
@@ -400,11 +425,7 @@ export default function ProductDetailPage({
                     <Link
                       key={fp._id}
                       href={`/produtos/${fp.slug}`}
-                      className={`w-10 h-10 rounded-full transition-all hover:scale-110 ${
-                        isActive
-                          ? 'ring-2 ring-[#FF6600] ring-offset-2'
-                          : 'border-2 border-gray-300 hover:border-gray-500'
-                      } ${fp.stock <= 0 ? 'opacity-40' : ''}`}
+                      className={`w-10 h-10 rounded-full transition-all hover:scale-110 ${isActive ? 'ring-2 ring-[#FF6600] ring-offset-2' : 'border-2 border-gray-300 hover:border-gray-500'} ${fp.stock <= 0 ? 'opacity-40' : ''}`}
                       title={fp.color}
                     >
                       {isDual ? (
@@ -449,11 +470,7 @@ export default function ProductDetailPage({
                     <Link
                       key={fp._id}
                       href={`/produtos/${fp.slug}`}
-                      className={`px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${
-                        isActive
-                          ? 'border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600]'
-                          : 'border-gray-300 text-gray-600 hover:border-gray-500'
-                      } ${fp.stock <= 0 ? 'opacity-40 pointer-events-none' : ''}`}
+                      className={`px-3 py-1.5 border rounded-md text-sm font-medium transition-colors ${isActive ? 'border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600]' : 'border-gray-300 text-gray-600 hover:border-gray-500'} ${fp.stock <= 0 ? 'opacity-40 pointer-events-none' : ''}`}
                     >
                       {fp.size}
                     </Link>
@@ -463,7 +480,7 @@ export default function ProductDetailPage({
             </div>
           )}
 
-          {/* Legacy Variants (kept for backward compatibility) */}
+          {/* Legacy Variants */}
           {product.variants.map((variant, vi) => (
             <div key={vi}>
               <p className='text-sm font-medium text-gray-700 mb-2'>
