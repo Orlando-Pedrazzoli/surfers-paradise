@@ -1,19 +1,98 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Search, User, ShoppingCart, Menu, X } from 'lucide-react';
+import Image from 'next/image';
+import { Search, User, ShoppingCart, Menu, X, ChevronDown } from 'lucide-react';
 import { mainCategories } from '@/lib/config/navigation';
+
+interface SubCategory {
+  _id: string;
+  name: string;
+  slug: string;
+  parent?: string | null;
+}
+
+interface CatalogData {
+  categories: SubCategory[];
+  brands: { _id: string; name: string; slug: string }[];
+}
+
+// Mega-menu images per category slug
+const megaImages: Record<string, string> = {
+  pranchas: '/images/mega-pranchas.jpg',
+  quilhas: '/images/mega-quilhas.jpg',
+  deck: '/images/mega-deck.jpg',
+  leash: '/images/mega-leash.jpg',
+  wetsuit: '/images/mega-wetsuit.jpg',
+  parafinas: '/images/mega-parafinas.jpg',
+  acessorios: '/images/mega-acessorios.jpg',
+  'sup-longboard-funboard': '/images/mega-sup.jpg',
+  capas: '/images/mega-capas.jpg',
+};
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<CatalogData | null>(null);
+  const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch catalog data for subcategories
+  useEffect(() => {
+    const fetchCatalog = async () => {
+      try {
+        const res = await fetch('/api/catalog');
+        const data = await res.json();
+        if (data.success) setCatalog(data);
+      } catch {
+        console.error('Erro ao carregar catálogo');
+      }
+    };
+    fetchCatalog();
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       window.location.href = `/busca?q=${encodeURIComponent(searchQuery.trim())}`;
     }
+  };
+
+  // Get slug from href (e.g. "/categoria/quilhas" -> "quilhas")
+  const getSlugFromHref = (href: string) => {
+    const parts = href.split('/');
+    return parts[parts.length - 1];
+  };
+
+  // Get subcategories for a given category slug
+  const getSubcategories = (slug: string): SubCategory[] => {
+    if (!catalog) return [];
+    const parent = catalog.categories.find(c => c.slug === slug);
+    if (!parent) return [];
+    return catalog.categories.filter(c => c.parent === parent._id);
+  };
+
+  // Hover handlers with delay to prevent flicker
+  const handleMouseEnter = (slug: string) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setActiveMenu(slug);
+  };
+
+  const handleMouseLeave = () => {
+    timeoutRef.current = setTimeout(() => {
+      setActiveMenu(null);
+    }, 150);
+  };
+
+  // Split subcategories into columns of 5
+  const splitIntoColumns = (items: SubCategory[], perColumn: number = 5) => {
+    const columns: SubCategory[][] = [];
+    for (let i = 0; i < items.length; i += perColumn) {
+      columns.push(items.slice(i, i + perColumn));
+    }
+    return columns;
   };
 
   return (
@@ -33,15 +112,19 @@ export default function Navbar() {
             {/* Logo */}
             <Link href='/' className='flex-shrink-0'>
               <div className='flex items-center gap-2'>
-                <div className='w-10 h-10 bg-[#FF6600] rounded-lg flex items-center justify-center'>
-                  <span className='text-white font-black text-lg'>★</span>
-                </div>
+                <Image
+                  src='/images/logo-navbar.png'
+                  alt='Surfers Paradise'
+                  width={56}
+                  height={56}
+                  className='w-12 h-12 md:w-14 md:h-14 object-contain'
+                />
                 <div className='hidden sm:block'>
                   <p className='text-lg font-black text-gray-900 leading-tight'>
                     SURFERS PARADISE
                   </p>
                   <p className='text-[10px] text-gray-500 uppercase tracking-wider'>
-                    Board Shop
+                    Authentic Board Shop
                   </p>
                 </div>
               </div>
@@ -114,30 +197,111 @@ export default function Navbar() {
           </form>
         </div>
 
-        {/* Category Nav Bar */}
-        <nav className='bg-gray-900 hidden md:block'>
+        {/* ═══ CATEGORY NAV BAR WITH MEGA-MENU ═══ */}
+        <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
             <ul className='flex items-center justify-center gap-0'>
-              {mainCategories.map(cat => (
-                <li key={cat.href}>
-                  <Link
-                    href={cat.href}
-                    className={`block px-4 py-3 text-sm font-medium transition-colors ${
-                      cat.label === 'Promoção'
-                        ? 'text-[#FF6600] hover:text-white'
-                        : 'text-gray-300 hover:text-white hover:bg-gray-800'
-                    }`}
+              {mainCategories.map(cat => {
+                const slug = getSlugFromHref(cat.href);
+                const subcategories = getSubcategories(slug);
+                const hasSubmenu = subcategories.length > 0;
+
+                return (
+                  <li
+                    key={cat.href}
+                    className='relative'
+                    onMouseEnter={() => hasSubmenu && handleMouseEnter(slug)}
+                    onMouseLeave={handleMouseLeave}
                   >
-                    {cat.label}
-                  </Link>
-                </li>
-              ))}
+                    <Link
+                      href={cat.href}
+                      className={`flex items-center gap-1 px-4 py-3 text-sm font-medium transition-colors ${
+                        cat.label === 'Promoção'
+                          ? 'text-[#FF6600] hover:text-white'
+                          : activeMenu === slug
+                            ? 'text-white bg-gray-800'
+                            : 'text-gray-300 hover:text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      {cat.label}
+                      {hasSubmenu && (
+                        <ChevronDown size={12} className='opacity-50' />
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </div>
+
+          {/* ═══ MEGA-MENU DROPDOWN ═══ */}
+          {activeMenu && (
+            <div
+              className='absolute left-0 right-0 bg-white border-t border-gray-200 shadow-xl z-50'
+              onMouseEnter={() => {
+                if (timeoutRef.current) clearTimeout(timeoutRef.current);
+              }}
+              onMouseLeave={handleMouseLeave}
+            >
+              <div className='max-w-7xl mx-auto px-4 py-6'>
+                <div className='flex gap-8'>
+                  {/* Subcategories in columns */}
+                  <div className='flex-1'>
+                    <div className='flex gap-8'>
+                      {splitIntoColumns(getSubcategories(activeMenu)).map(
+                        (column, ci) => (
+                          <div key={ci} className='min-w-[160px]'>
+                            {column.map(sub => (
+                              <Link
+                                key={sub._id}
+                                href={`/categoria/${sub.slug}`}
+                                className='block py-1.5 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                                onClick={() => setActiveMenu(null)}
+                              >
+                                {sub.name}
+                              </Link>
+                            ))}
+                          </div>
+                        ),
+                      )}
+                    </div>
+
+                    {/* View All link */}
+                    <Link
+                      href={`/categoria/${activeMenu}`}
+                      className='inline-block mt-4 text-sm font-semibold text-[#FF6600] hover:text-[#e55b00] transition-colors'
+                      onClick={() => setActiveMenu(null)}
+                    >
+                      Ver todos →
+                    </Link>
+                  </div>
+
+                  {/* Promo Image */}
+                  {megaImages[activeMenu] && (
+                    <div className='hidden lg:block w-[300px] flex-shrink-0'>
+                      <Link
+                        href={`/categoria/${activeMenu}`}
+                        onClick={() => setActiveMenu(null)}
+                        className='block rounded-lg overflow-hidden'
+                      >
+                        <Image
+                          src={megaImages[activeMenu]}
+                          alt={activeMenu}
+                          width={300}
+                          height={200}
+                          className='w-full h-auto object-cover hover:scale-105 transition-transform duration-300'
+                        />
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </nav>
       </header>
 
-      {/* Mobile Menu */}
+      {/* ═══ MOBILE MENU WITH EXPANDABLE CATEGORIES ═══ */}
       {mobileMenuOpen && (
         <div className='fixed inset-0 z-40 md:hidden'>
           <div
@@ -150,16 +314,53 @@ export default function Navbar() {
               <p className='text-gray-400 text-xs'>Board Shop</p>
             </div>
             <nav className='py-2'>
-              {mainCategories.map(cat => (
-                <Link
-                  key={cat.href}
-                  href={cat.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className='block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-[#FF6600] border-b border-gray-100'
-                >
-                  {cat.label}
-                </Link>
-              ))}
+              {mainCategories.map(cat => {
+                const slug = getSlugFromHref(cat.href);
+                const subcategories = getSubcategories(slug);
+                const hasSubmenu = subcategories.length > 0;
+                const isExpanded = expandedMobile === slug;
+
+                return (
+                  <div key={cat.href}>
+                    <div className='flex items-center border-b border-gray-100'>
+                      <Link
+                        href={cat.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className='flex-1 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-[#FF6600]'
+                      >
+                        {cat.label}
+                      </Link>
+                      {hasSubmenu && (
+                        <button
+                          onClick={() =>
+                            setExpandedMobile(isExpanded ? null : slug)
+                          }
+                          className='px-4 py-3 text-gray-400'
+                        >
+                          <ChevronDown
+                            size={14}
+                            className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                      )}
+                    </div>
+                    {isExpanded && subcategories.length > 0 && (
+                      <div className='bg-gray-50'>
+                        {subcategories.map(sub => (
+                          <Link
+                            key={sub._id}
+                            href={`/categoria/${sub.slug}`}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className='block pl-8 pr-4 py-2.5 text-sm text-gray-500 hover:text-[#FF6600] border-b border-gray-100'
+                          >
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               <div className='border-t border-gray-200 mt-2 pt-2'>
                 <Link
                   href='/login'

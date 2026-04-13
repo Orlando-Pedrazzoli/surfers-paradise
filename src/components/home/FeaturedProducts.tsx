@@ -16,6 +16,14 @@ interface Product {
   isNewArrival?: boolean;
   isFeatured?: boolean;
   salePercentage?: number;
+  // ═══ FAMILY FIELDS ═══
+  productFamily?: string;
+  variantType?: 'color' | 'size' | 'both';
+  color?: string;
+  colorCode?: string;
+  colorCode2?: string;
+  size?: string;
+  isMainVariant?: boolean;
 }
 
 interface FeaturedProductsProps {

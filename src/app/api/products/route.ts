@@ -4,11 +4,9 @@ import Product from '@/lib/models/Product';
 import Category from '@/lib/models/Category';
 import Brand from '@/lib/models/Brand';
 
-// Force model registration for populate
 const _deps = [Category, Brand];
 void _deps;
 
-// GET — list products with pagination, filters, search
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
@@ -18,10 +16,13 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
     const category = searchParams.get('category') || '';
+    const categorySlug = searchParams.get('categorySlug') || '';
     const brand = searchParams.get('brand') || '';
     const isActive = searchParams.get('isActive');
     const sort = searchParams.get('sort') || '-createdAt';
     const admin = searchParams.get('admin') === 'true';
+    const minPrice = searchParams.get('minPrice');
+    const maxPrice = searchParams.get('maxPrice');
 
     const filter: Record<string, unknown> = {};
 
@@ -34,14 +35,44 @@ export async function GET(request: NextRequest) {
     }
 
     if (category) filter.category = category;
+
+    if (categorySlug) {
+      const parentCat = await Category.findOne({ slug: categorySlug }).lean();
+      if (parentCat) {
+        const subcats = await Category.find({ parent: parentCat._id })
+          .select('_id')
+          .lean();
+        const allCatIds = [parentCat._id, ...subcats.map(s => s._id)];
+        filter.category = { $in: allCatIds };
+      }
+    }
+
     if (brand) filter.brand = brand;
+
     if (isActive !== null && isActive !== undefined && isActive !== '') {
       filter.isActive = isActive === 'true';
     }
 
-    // ═══ FAMILY SYSTEM ═══
-    // Public listing: only show main variants (or products without family)
-    // Admin listing: show all products
+    // Boolean filters
+    const isFeatured = searchParams.get('isFeatured');
+    if (isFeatured === 'true') filter.isFeatured = true;
+
+    const isNewArrival = searchParams.get('isNewArrival');
+    if (isNewArrival === 'true') filter.isNewArrival = true;
+
+    const isOnSale = searchParams.get('isOnSale');
+    if (isOnSale === 'true') filter.isOnSale = true;
+
+    // Price range
+    if (minPrice || maxPrice) {
+      filter.price = {};
+      if (minPrice)
+        (filter.price as Record<string, number>).$gte = parseFloat(minPrice);
+      if (maxPrice)
+        (filter.price as Record<string, number>).$lte = parseFloat(maxPrice);
+    }
+
+    // Family system
     if (!admin) {
       filter.isMainVariant = true;
     }
@@ -62,12 +93,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       products,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (error) {
     console.error('GET products error:', error);
@@ -78,12 +104,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST — create product
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
     const body = await request.json();
-
     const product = await Product.create(body);
     return NextResponse.json({ success: true, product }, { status: 201 });
   } catch (error) {

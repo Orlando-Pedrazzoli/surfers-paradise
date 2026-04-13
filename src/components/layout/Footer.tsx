@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { company } from '@/lib/config/company';
 
 export default function Footer() {
@@ -25,7 +26,85 @@ export default function Footer() {
 
       {/* Footer Links */}
       <div className='max-w-7xl mx-auto px-4 py-10'>
-        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8'>
+          {/* Logo + Social */}
+          <div>
+            <Link href='/' className='flex items-center gap-2 mb-4'>
+              <Image
+                src='/images/logo-navbar.png'
+                alt='Surfers Paradise'
+                width={48}
+                height={48}
+                className='w-12 h-12 object-contain'
+              />
+              <div>
+                <p className='text-white font-black text-sm leading-tight'>
+                  SURFERS PARADISE
+                </p>
+                <p className='text-[9px] text-gray-400 uppercase tracking-wider'>
+                  Authentic Board Shop
+                </p>
+              </div>
+            </Link>
+            <p className='text-xs text-gray-400 mb-4 leading-relaxed'>
+              Há mais de 20 anos oferecendo os melhores produtos de surf do
+              Brasil e do mundo.
+            </p>
+            {/* Social Icons */}
+            <div className='flex items-center gap-3'>
+              <Link
+                href='https://www.instagram.com/lojasurfersparadiseoficial/'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center hover:bg-[#FF6600] hover:scale-110 transition-all duration-300 group'
+                aria-label='Instagram'
+              >
+                <svg
+                  width='16'
+                  height='16'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  className='text-gray-400 group-hover:text-white transition-colors duration-300'
+                >
+                  <rect
+                    x='2'
+                    y='2'
+                    width='20'
+                    height='20'
+                    rx='5'
+                    stroke='currentColor'
+                    strokeWidth='2'
+                  />
+                  <circle
+                    cx='12'
+                    cy='12'
+                    r='5'
+                    stroke='currentColor'
+                    strokeWidth='2'
+                  />
+                  <circle cx='18' cy='6' r='1.5' fill='currentColor' />
+                </svg>
+              </Link>
+              <Link
+                href='https://web.facebook.com/lojasurfersparadise/'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center hover:bg-[#FF6600] hover:scale-110 transition-all duration-300 group'
+                aria-label='Facebook'
+              >
+                <svg
+                  width='16'
+                  height='16'
+                  viewBox='0 0 24 24'
+                  fill='currentColor'
+                  className='text-gray-400 group-hover:text-white transition-colors duration-300'
+                >
+                  <path d='M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3V2z' />
+                </svg>
+              </Link>
+            </div>
+          </div>
+
           {/* Sobre Nós */}
           <div>
             <h3 className='text-white font-bold text-sm mb-4 uppercase'>
@@ -174,7 +253,6 @@ export default function Footer() {
           <p className='text-xs text-gray-500 text-center'>
             {company.name} — {company.slogan}
           </p>
-
           <p className='text-xs text-gray-500'>
             Desenvolvido por{' '}
             <a
