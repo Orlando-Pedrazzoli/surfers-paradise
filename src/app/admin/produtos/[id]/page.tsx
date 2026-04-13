@@ -4,7 +4,7 @@ import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { Upload, X, Plus, Trash2 } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 
 const PRESET_COLORS = [
   { name: 'Preto', code: '#000000' },
@@ -120,20 +120,6 @@ interface BrandOption {
   _id: string;
   name: string;
 }
-interface VariantOption {
-  label: string;
-  value: string;
-  stock: number;
-  sku: string;
-}
-interface Variant {
-  name: string;
-  options: VariantOption[];
-}
-interface Specification {
-  key: string;
-  value: string;
-}
 
 export default function AdminProdutoEditPage({
   params,
@@ -175,10 +161,6 @@ export default function AdminProdutoEditPage({
     seoDescription: '',
   });
 
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [specifications, setSpecifications] = useState<Specification[]>([]);
-
-  // ═══ FAMILY — INDEPENDENT ═══
   const [productFamily, setProductFamily] = useState('');
   const [hasColor, setHasColor] = useState(false);
   const [color, setColor] = useState('');
@@ -231,29 +213,9 @@ export default function AdminProdutoEditPage({
           seoTitle: p.seoTitle || '',
           seoDescription: p.seoDescription || '',
         });
-        setVariants(
-          (p.variants || []).map((v: Variant) => ({
-            name: v.name,
-            options: v.options.map((o: VariantOption) => ({
-              label: o.label,
-              value: o.value,
-              stock: o.stock,
-              sku: o.sku || '',
-            })),
-          })),
-        );
-        setSpecifications(
-          (p.specifications || []).map((s: Specification) => ({
-            key: s.key,
-            value: s.value,
-          })),
-        );
 
-        // ═══ LOAD FAMILY DATA — color and size independently ═══
         setProductFamily(p.productFamily || '');
         setIsMainVariant(p.isMainVariant ?? true);
-
-        // Load color if exists
         if (p.color) {
           setHasColor(true);
           setColor(p.color);
@@ -263,8 +225,6 @@ export default function AdminProdutoEditPage({
             setColorCode2(p.colorCode2);
           }
         }
-
-        // Load size if exists
         if (p.size) {
           setHasSize(true);
           setSizeValue(p.size);
@@ -346,61 +306,6 @@ export default function AdminProdutoEditPage({
     setIsDualColor(true);
   };
 
-  const addVariant = () =>
-    setVariants(p => [
-      ...p,
-      { name: '', options: [{ label: '', value: '', stock: 0, sku: '' }] },
-    ]);
-  const removeVariant = (i: number) =>
-    setVariants(p => p.filter((_, j) => j !== i));
-  const updateVariantName = (i: number, n: string) =>
-    setVariants(p => p.map((v, j) => (j === i ? { ...v, name: n } : v)));
-  const addVariantOption = (vi: number) =>
-    setVariants(p =>
-      p.map((v, i) =>
-        i === vi
-          ? {
-              ...v,
-              options: [
-                ...v.options,
-                { label: '', value: '', stock: 0, sku: '' },
-              ],
-            }
-          : v,
-      ),
-    );
-  const removeVariantOption = (vi: number, oi: number) =>
-    setVariants(p =>
-      p.map((v, i) =>
-        i === vi ? { ...v, options: v.options.filter((_, j) => j !== oi) } : v,
-      ),
-    );
-  const updateVariantOption = (
-    vi: number,
-    oi: number,
-    f: keyof VariantOption,
-    val: string | number,
-  ) =>
-    setVariants(p =>
-      p.map((v, i) =>
-        i === vi
-          ? {
-              ...v,
-              options: v.options.map((o, j) =>
-                j === oi ? { ...o, [f]: val } : o,
-              ),
-            }
-          : v,
-      ),
-    );
-
-  const addSpecification = () =>
-    setSpecifications(p => [...p, { key: '', value: '' }]);
-  const removeSpecification = (i: number) =>
-    setSpecifications(p => p.filter((_, j) => j !== i));
-  const updateSpecification = (i: number, f: 'key' | 'value', v: string) =>
-    setSpecifications(p => p.map((s, j) => (j === i ? { ...s, [f]: v } : s)));
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (
@@ -437,10 +342,8 @@ export default function AdminProdutoEditPage({
       familyFields.colorCode = '';
       familyFields.colorCode2 = '';
     }
-
     familyFields.size = activeSize ? sizeValue.trim() : '';
 
-    // Auto-generate family slug
     if (!productFamily.trim() && (activeColor || activeSize)) {
       let baseName = form.name;
       if (activeColor)
@@ -460,8 +363,8 @@ export default function AdminProdutoEditPage({
         .split(',')
         .map(t => t.trim())
         .filter(Boolean),
-      variants: variants.filter(v => v.name && v.options.length > 0),
-      specifications: specifications.filter(s => s.key && s.value),
+      variants: [],
+      specifications: [],
     };
 
     try {
@@ -544,9 +447,26 @@ export default function AdminProdutoEditPage({
                   setForm({ ...form, description: e.target.value })
                 }
                 required
-                rows={4}
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                rows={8}
+                placeholder={
+                  'Escreva a descrição do produto.\nCada linha nova (Enter) será respeitada na página do produto.\n\nExemplo:\nPrancha de surf modelo Performance.\nIdeal para ondas de 1 a 2 metros.\nConstrução em EPS com resina epóxi.'
+                }
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] font-mono text-sm leading-relaxed'
               />
+              <p className='text-xs text-gray-400 mt-1'>
+                💡 Dica: Use Enter para quebrar linhas. Cada Enter cria um novo
+                parágrafo na página do produto.
+              </p>
+              {form.description && (
+                <div className='mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200'>
+                  <p className='text-xs font-medium text-gray-500 mb-2 uppercase'>
+                    Pré-visualização:
+                  </p>
+                  <div className='text-sm text-gray-700 leading-relaxed whitespace-pre-line'>
+                    {form.description}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -557,57 +477,123 @@ export default function AdminProdutoEditPage({
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
-                Preço (R$) *
+                Preço de Venda (R$) *
               </label>
-              <input
-                type='number'
-                step='0.01'
-                min='0'
-                value={form.price || ''}
-                onChange={e =>
-                  setForm({ ...form, price: parseFloat(e.target.value) || 0 })
-                }
-                required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-              />
+              <div className='relative'>
+                <span className='absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400'>
+                  R$
+                </span>
+                <input
+                  type='number'
+                  step='0.01'
+                  min='0'
+                  value={form.price || ''}
+                  onChange={e =>
+                    setForm({ ...form, price: parseFloat(e.target.value) || 0 })
+                  }
+                  required
+                  placeholder='0,00'
+                  className='w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+              </div>
+              <p className='text-xs text-gray-400 mt-1'>
+                Preço que o cliente paga
+              </p>
             </div>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
-                Preço Comparativo
+                Preço Original (R$)
               </label>
-              <input
-                type='number'
-                step='0.01'
-                min='0'
-                value={form.compareAtPrice || ''}
-                onChange={e =>
-                  setForm({
-                    ...form,
-                    compareAtPrice: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-              />
+              <div className='relative'>
+                <span className='absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400'>
+                  R$
+                </span>
+                <input
+                  type='number'
+                  step='0.01'
+                  min='0'
+                  value={form.compareAtPrice || ''}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      compareAtPrice: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  placeholder='0,00'
+                  className='w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+              </div>
+              <p className='text-xs text-gray-400 mt-1'>
+                Riscado (opcional, para mostrar desconto)
+              </p>
             </div>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
-                Custo
+                Custo (R$)
               </label>
-              <input
-                type='number'
-                step='0.01'
-                min='0'
-                value={form.costPrice || ''}
-                onChange={e =>
-                  setForm({
-                    ...form,
-                    costPrice: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-              />
+              <div className='relative'>
+                <span className='absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400'>
+                  R$
+                </span>
+                <input
+                  type='number'
+                  step='0.01'
+                  min='0'
+                  value={form.costPrice || ''}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      costPrice: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  placeholder='0,00'
+                  className='w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+              </div>
+              <p className='text-xs text-gray-400 mt-1'>
+                Uso interno (não visível ao cliente)
+              </p>
             </div>
           </div>
+          {form.price > 0 && (
+            <div className='mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200'>
+              <p className='text-xs font-medium text-gray-500 mb-3 uppercase'>
+                Como o cliente vai ver:
+              </p>
+              <div className='flex items-center gap-6 flex-wrap'>
+                <div>
+                  {form.compareAtPrice > 0 &&
+                    form.compareAtPrice > form.price && (
+                      <p className='text-sm text-gray-400 line-through'>
+                        de R$ {form.compareAtPrice.toFixed(2).replace('.', ',')}
+                      </p>
+                    )}
+                  <p className='text-2xl font-black text-gray-900'>
+                    R$ {form.price.toFixed(2).replace('.', ',')}
+                  </p>
+                  <p className='text-xs text-gray-500'>
+                    10x de R$ {(form.price / 10).toFixed(2).replace('.', ',')}{' '}
+                    sem juros
+                  </p>
+                </div>
+                <div className='border-l pl-6'>
+                  <p className='text-sm text-[#FF6600] font-bold'>
+                    PIX / Boleto: R${' '}
+                    {(form.price * 0.9).toFixed(2).replace('.', ',')}
+                  </p>
+                  <p className='text-xs text-green-600'>10% de desconto</p>
+                </div>
+                {form.costPrice > 0 && (
+                  <div className='border-l pl-6'>
+                    <p className='text-xs text-gray-400'>Margem</p>
+                    <p className='text-sm font-bold text-gray-700'>
+                      {((1 - form.costPrice / form.price) * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Category & Brand */}
@@ -822,7 +808,7 @@ export default function AdminProdutoEditPage({
           </div>
         </div>
 
-        {/* ═══ FAMÍLIA — COR E TAMANHO INDEPENDENTES ═══ */}
+        {/* ═══ FAMÍLIA DE PRODUTOS ═══ */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-2'>
             Família de Produtos (Variantes)
@@ -1103,146 +1089,6 @@ export default function AdminProdutoEditPage({
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Legacy Variants */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
-          <div className='flex items-center justify-between mb-4'>
-            <h2 className='text-lg font-semibold'>
-              Variantes (Opções internas)
-            </h2>
-            <button
-              type='button'
-              onClick={addVariant}
-              className='flex items-center gap-1 text-sm text-[#FF6600]'
-            >
-              <Plus size={16} /> Adicionar
-            </button>
-          </div>
-          {variants.length === 0 && (
-            <p className='text-sm text-gray-400'>Nenhuma variante</p>
-          )}
-          {variants.map((variant, vi) => (
-            <div key={vi} className='border rounded-lg p-4 mb-4'>
-              <div className='flex items-center gap-3 mb-3'>
-                <input
-                  type='text'
-                  value={variant.name}
-                  onChange={e => updateVariantName(vi, e.target.value)}
-                  placeholder='Nome'
-                  className='flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm'
-                />
-                <button
-                  type='button'
-                  onClick={() => removeVariant(vi)}
-                  className='p-2 text-red-500'
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-              {variant.options.map((opt, oi) => (
-                <div key={oi} className='grid grid-cols-5 gap-2 mb-2'>
-                  <input
-                    type='text'
-                    value={opt.label}
-                    onChange={e =>
-                      updateVariantOption(vi, oi, 'label', e.target.value)
-                    }
-                    placeholder='Label'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
-                  />
-                  <input
-                    type='text'
-                    value={opt.value}
-                    onChange={e =>
-                      updateVariantOption(vi, oi, 'value', e.target.value)
-                    }
-                    placeholder='Valor'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
-                  />
-                  <input
-                    type='number'
-                    value={opt.stock || ''}
-                    onChange={e =>
-                      updateVariantOption(
-                        vi,
-                        oi,
-                        'stock',
-                        parseInt(e.target.value) || 0,
-                      )
-                    }
-                    placeholder='Estoque'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
-                  />
-                  <input
-                    type='text'
-                    value={opt.sku}
-                    onChange={e =>
-                      updateVariantOption(vi, oi, 'sku', e.target.value)
-                    }
-                    placeholder='SKU'
-                    className='px-2 py-1.5 border border-gray-300 rounded text-sm'
-                  />
-                  <button
-                    type='button'
-                    onClick={() => removeVariantOption(vi, oi)}
-                    className='p-1.5 text-red-400 justify-self-center'
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-              <button
-                type='button'
-                onClick={() => addVariantOption(vi)}
-                className='text-xs text-[#FF6600] mt-1'
-              >
-                + Opção
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* Specifications */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
-          <div className='flex items-center justify-between mb-4'>
-            <h2 className='text-lg font-semibold'>Especificações</h2>
-            <button
-              type='button'
-              onClick={addSpecification}
-              className='flex items-center gap-1 text-sm text-[#FF6600]'
-            >
-              <Plus size={16} /> Adicionar
-            </button>
-          </div>
-          {specifications.length === 0 && (
-            <p className='text-sm text-gray-400'>Nenhuma</p>
-          )}
-          {specifications.map((spec, i) => (
-            <div key={i} className='grid grid-cols-5 gap-2 mb-2'>
-              <input
-                type='text'
-                value={spec.key}
-                onChange={e => updateSpecification(i, 'key', e.target.value)}
-                placeholder='Chave'
-                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm'
-              />
-              <input
-                type='text'
-                value={spec.value}
-                onChange={e => updateSpecification(i, 'value', e.target.value)}
-                placeholder='Valor'
-                className='col-span-2 px-2 py-1.5 border border-gray-300 rounded text-sm'
-              />
-              <button
-                type='button'
-                onClick={() => removeSpecification(i)}
-                className='p-1.5 text-red-400 justify-self-center'
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
         </div>
 
         {/* Flags */}

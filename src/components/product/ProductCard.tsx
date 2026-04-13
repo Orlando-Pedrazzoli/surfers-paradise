@@ -19,10 +19,6 @@ interface ProductCardProps {
     compareAtPrice?: number;
     images: string[];
     thumbnail?: string;
-    variants?: {
-      name: string;
-      options: { label: string; value: string; stock: number; sku?: string }[];
-    }[];
     isOnSale?: boolean;
     isNewArrival?: boolean;
     isFeatured?: boolean;
@@ -61,7 +57,6 @@ export default function ProductCard({ product }: ProductCardProps) {
     null,
   );
 
-  // The displayed product data — either the active variant or the original product
   const displayed = activeVariant || {
     _id: product._id,
     name: product.name,
@@ -70,16 +65,18 @@ export default function ProductCard({ product }: ProductCardProps) {
     compareAtPrice: product.compareAtPrice,
     images: product.images,
     thumbnail: product.thumbnail,
-    stock: 0,
+    stock: 999,
   };
 
   const pixPrice = calculatePixPrice(displayed.price);
   const installment = calculateInstallments(displayed.price);
   const images = displayed.images.length > 0 ? displayed.images : [];
-  const hasDiscount =
-    displayed.compareAtPrice && displayed.compareAtPrice > displayed.price;
+  const hasDiscount = !!(
+    displayed.compareAtPrice &&
+    displayed.compareAtPrice > 0 &&
+    displayed.compareAtPrice > displayed.price
+  );
 
-  // Fetch family siblings via dedicated API
   useEffect(() => {
     if (product.productFamily) {
       fetch(`/api/products/family/${encodeURIComponent(product.productFamily)}`)
@@ -115,13 +112,11 @@ export default function ProductCard({ product }: ProductCardProps) {
     e.stopPropagation();
     setCurrentImage(prev => (prev - 1 + images.length) % images.length);
   };
-
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setCurrentImage(prev => (prev + 1) % images.length);
   };
-
   const toggleFavorite = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -193,11 +188,6 @@ export default function ProductCard({ product }: ProductCardProps) {
               PROMOÇÃO
             </span>
           )}
-          {product.isFeatured && !product.isNewArrival && !product.isOnSale && (
-            <span className='bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded'>
-              EM ESTOQUE
-            </span>
-          )}
           {hasDiscount && (
             <span className='bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded'>
               {product.salePercentage
@@ -224,7 +214,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           {displayed.name}
         </h3>
 
-        {/* ═══ FAMILY COLOR VARIANTS — click swaps card content ═══ */}
+        {/* Family Color Variants */}
         {colorSiblings.length > 1 && (
           <div className='flex items-center justify-center gap-1.5 mb-2'>
             {colorSiblings.map(sibling => {
@@ -261,7 +251,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           </div>
         )}
 
-        {/* ═══ FAMILY SIZE VARIANTS — click swaps card content ═══ */}
+        {/* Family Size Variants */}
         {sizeSiblings.length > 1 && (
           <div className='flex items-center justify-center gap-1 mb-2 flex-wrap'>
             {sizeSiblings.map(sibling => {
@@ -281,6 +271,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           </div>
         )}
 
+        {/* Prices */}
         <p className='text-[#FF6600] font-bold text-xl leading-tight'>
           {formatCurrency(pixPrice)}
         </p>
@@ -292,6 +283,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             de {formatCurrency(displayed.compareAtPrice!)}
           </p>
         )}
+
         <p className='text-base font-bold text-gray-900 mt-1'>
           {formatCurrency(displayed.price)}
         </p>
