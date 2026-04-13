@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useSession } from 'next-auth/react';
 import { Search, User, Menu, X, ChevronDown } from 'lucide-react';
 import { mainCategories } from '@/lib/config/navigation';
 import CartIcon from '@/components/layout/CartIcon';
@@ -32,12 +33,16 @@ const megaImages: Record<string, string> = {
 };
 
 export default function Navbar() {
+  const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogData | null>(null);
   const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isLoggedIn = !!session?.user;
+  const firstName = session?.user?.name?.split(' ')[0] || '';
 
   useEffect(() => {
     const fetchCatalog = async () => {
@@ -144,17 +149,33 @@ export default function Navbar() {
             </form>
 
             <div className='flex items-center gap-3 sm:gap-5'>
-              <Link
-                href='/login'
-                className='hidden sm:flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
-              >
-                <User size={20} />
-                <div className='hidden lg:block'>
-                  <p className='text-xs text-gray-400'>Olá, seja bem vindo!</p>
-                  <p className='font-medium text-xs'>ENTRAR | CADASTRE-SE</p>
-                </div>
-              </Link>
-
+              {isLoggedIn ? (
+                <Link
+                  href='/minha-conta'
+                  className='hidden sm:flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                >
+                  <div className='w-8 h-8 bg-[#FF6600] text-white rounded-full flex items-center justify-center text-xs font-bold'>
+                    {firstName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className='hidden lg:block'>
+                    <p className='text-xs text-gray-400'>Olá, {firstName}!</p>
+                    <p className='font-medium text-xs'>MINHA CONTA</p>
+                  </div>
+                </Link>
+              ) : (
+                <Link
+                  href='/login'
+                  className='hidden sm:flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                >
+                  <User size={20} />
+                  <div className='hidden lg:block'>
+                    <p className='text-xs text-gray-400'>
+                      Olá, seja bem vindo!
+                    </p>
+                    <p className='font-medium text-xs'>ENTRAR | CADASTRE-SE</p>
+                  </div>
+                </Link>
+              )}
               <CartIcon />
             </div>
           </div>
@@ -178,6 +199,7 @@ export default function Navbar() {
           </form>
         </div>
 
+        {/* ═══ CATEGORY NAV BAR WITH MEGA-MENU ═══ */}
         <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
             <ul className='flex items-center justify-center gap-0'>
@@ -214,6 +236,7 @@ export default function Navbar() {
             </ul>
           </div>
 
+          {/* ═══ MEGA-MENU DROPDOWN ═══ */}
           {activeMenu && (
             <div
               className='absolute left-0 right-0 bg-white border-t border-gray-200 shadow-xl z-50'
@@ -276,6 +299,7 @@ export default function Navbar() {
         </nav>
       </header>
 
+      {/* ═══ MOBILE MENU ═══ */}
       {mobileMenuOpen && (
         <div className='fixed inset-0 z-40 md:hidden'>
           <div
@@ -287,6 +311,27 @@ export default function Navbar() {
               <p className='text-white font-bold'>SURFERS PARADISE</p>
               <p className='text-gray-400 text-xs'>Authentic Board Shop</p>
             </div>
+
+            {isLoggedIn && (
+              <div className='p-4 border-b border-gray-100 bg-orange-50'>
+                <Link
+                  href='/minha-conta'
+                  onClick={() => setMobileMenuOpen(false)}
+                  className='flex items-center gap-3'
+                >
+                  <div className='w-9 h-9 bg-[#FF6600] text-white rounded-full flex items-center justify-center text-sm font-bold'>
+                    {firstName.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className='text-sm font-medium text-gray-900'>
+                      Olá, {firstName}!
+                    </p>
+                    <p className='text-xs text-[#FF6600]'>Minha Conta</p>
+                  </div>
+                </Link>
+              </div>
+            )}
+
             <nav className='py-2'>
               {mainCategories.map(cat => {
                 const slug = getSlugFromHref(cat.href);
@@ -335,15 +380,17 @@ export default function Navbar() {
                   </div>
                 );
               })}
-              <div className='border-t border-gray-200 mt-2 pt-2'>
-                <Link
-                  href='/login'
-                  onClick={() => setMobileMenuOpen(false)}
-                  className='block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50'
-                >
-                  Entrar / Cadastre-se
-                </Link>
-              </div>
+              {!isLoggedIn && (
+                <div className='border-t border-gray-200 mt-2 pt-2'>
+                  <Link
+                    href='/login'
+                    onClick={() => setMobileMenuOpen(false)}
+                    className='block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50'
+                  >
+                    Entrar / Cadastre-se
+                  </Link>
+                </div>
+              )}
             </nav>
           </div>
         </div>
