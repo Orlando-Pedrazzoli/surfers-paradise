@@ -1,21 +1,16 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Package,
   FolderTree,
   Tags,
-  ShoppingCart,
-  Users,
-  Star,
-  Image,
-  Ticket,
-  FileText,
-  Settings,
-  ClipboardList,
+  Image as ImageIcon,
   LogOut,
+  ExternalLink,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils/cn';
@@ -25,27 +20,37 @@ const menuItems = [
   { label: 'Produtos', href: '/admin/produtos', icon: Package },
   { label: 'Categorias', href: '/admin/categorias', icon: FolderTree },
   { label: 'Marcas', href: '/admin/marcas', icon: Tags },
-  { label: 'Pedidos', href: '/admin/pedidos', icon: ShoppingCart },
-  { label: 'Clientes', href: '/admin/clientes', icon: Users },
-  { label: 'Avaliações', href: '/admin/avaliacoes', icon: Star },
-  { label: 'Blog', href: '/admin/blog', icon: FileText },
-  { label: 'Banners', href: '/admin/configuracoes#banners', icon: Image },
-  { label: 'Cupons', href: '/admin/cupons', icon: Ticket },
-  { label: 'Romaneios', href: '/admin/romaneios', icon: ClipboardList },
-  { label: 'Configurações', href: '/admin/configuracoes', icon: Settings },
+  { label: 'Banners', href: '/admin/configuracoes', icon: ImageIcon },
 ];
 
 export default function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className='w-64 min-h-screen bg-gray-900 text-white flex flex-col'>
-      <div className='p-6 border-b border-gray-700'>
-        <h2 className='text-lg font-bold'>Surfers Paradise</h2>
-        <p className='text-sm text-gray-400'>Painel Admin</p>
+    <aside className='w-64 min-h-screen bg-[#1A1A1A] text-white flex flex-col'>
+      {/* Logo */}
+      <div className='px-5 py-5 border-b border-white/10'>
+        <Link href='/admin' className='flex items-center gap-3'>
+          <Image
+            src='/images/logo-navbar.png'
+            alt='Surfers Paradise'
+            width={40}
+            height={40}
+            className='w-10 h-10 object-contain'
+          />
+          <div>
+            <p className='text-white font-black text-sm leading-tight'>
+              SURFERS PARADISE
+            </p>
+            <p className='text-[9px] text-gray-500 uppercase tracking-widest'>
+              Painel Admin
+            </p>
+          </div>
+        </Link>
       </div>
 
-      <nav className='flex-1 py-4'>
+      {/* Navigation */}
+      <nav className='flex-1 py-3 overflow-y-auto'>
         {menuItems.map(item => {
           const isActive =
             pathname === item.href ||
@@ -56,25 +61,34 @@ export default function AdminSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex items-center gap-3 px-6 py-3 text-sm transition-colors',
+                'flex items-center gap-3 px-5 py-2.5 text-sm transition-all mx-2 rounded-lg mb-0.5',
                 isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white',
+                  ? 'bg-[#FF6600] text-white font-medium shadow-lg shadow-[#FF6600]/20'
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white',
               )}
             >
-              <item.icon size={18} />
+              <item.icon size={18} className={isActive ? 'text-white' : ''} />
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className='p-4 border-t border-gray-700'>
+      {/* Footer */}
+      <div className='px-3 py-3 border-t border-white/10 space-y-1'>
+        <Link
+          href='/'
+          target='_blank'
+          className='flex items-center gap-3 px-3 py-2 text-sm text-gray-500 hover:text-white rounded-lg hover:bg-white/5 transition-colors'
+        >
+          <ExternalLink size={16} />
+          Ver Loja
+        </Link>
         <button
           onClick={() => signOut({ callbackUrl: '/admin-login' })}
-          className='flex items-center gap-3 px-2 py-2 text-sm text-gray-300 hover:text-white transition-colors w-full'
+          className='flex items-center gap-3 px-3 py-2 text-sm text-gray-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors w-full'
         >
-          <LogOut size={18} />
+          <LogOut size={16} />
           Sair
         </button>
       </div>

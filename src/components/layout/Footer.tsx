@@ -306,19 +306,40 @@ export default function Footer() {
             </p>
           </div>
 
-          {/* Developer Credit */}
+          {/* Developer Credit + Admin Access */}
           <div className='text-center md:text-right flex-shrink-0'>
             <p className='text-[10px] text-gray-400 uppercase tracking-wide mb-1'>
               Desenvolvido por
             </p>
-            <a
-              href='https://pedrazzolidigital.com'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-sm font-bold text-[#FF6600] hover:underline'
-            >
-              Pedrazzoli Digital
-            </a>
+            <div className='flex items-center justify-center md:justify-end gap-2'>
+              <a
+                href='https://pedrazzolidigital.com'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-sm font-bold text-[#FF6600] hover:underline'
+              >
+                Pedrazzoli Digital
+              </a>
+              <Link
+                href='/admin-login'
+                className='text-gray-300 hover:text-[#FF6600] transition-colors'
+                title='Painel Administrativo'
+              >
+                <svg
+                  width='14'
+                  height='14'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <rect x='3' y='11' width='18' height='11' rx='2' ry='2' />
+                  <path d='M7 11V7a5 5 0 0110 0v4' />
+                </svg>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
