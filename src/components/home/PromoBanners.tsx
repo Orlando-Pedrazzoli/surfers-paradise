@@ -7,6 +7,7 @@ interface PromoBanner {
   image: string;
   alt: string;
   href: string;
+  label: string;
 }
 
 const banners: PromoBanner[] = [
@@ -14,11 +15,13 @@ const banners: PromoBanner[] = [
     image: '/images/fcs2.jpg',
     alt: 'Quilhas FCS II',
     href: '/marca/fcs-ii',
+    label: 'ENCAIXE FCS2',
   },
   {
     image: '/images/futures.jpg',
     alt: 'Quilhas Futures',
     href: '/marca/futures',
+    label: 'ENCAIXE FUTURES',
   },
 ];
 
@@ -42,8 +45,8 @@ export default function PromoBanners() {
               />
               <div className='absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors' />
               <div className='absolute bottom-6 left-1/2 -translate-x-1/2'>
-                <span className='bg-[#2196F3] text-white font-bold text-sm md:text-base px-6 py-2.5 uppercase tracking-wide'>
-                  Shop Now
+                <span className='bg-[#FF6600] text-white font-bold text-sm md:text-base px-6 py-2.5 uppercase tracking-wide'>
+                  {banner.label}
                 </span>
               </div>
             </Link>

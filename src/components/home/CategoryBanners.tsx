@@ -36,13 +36,16 @@ export default function CategoryBanners() {
             <Link
               key={cat.title}
               href={cat.href}
-              className='group block overflow-hidden'
+              className='group block overflow-hidden rounded-lg'
             >
-              <div className='bg-[#2196F3] py-2 text-center'>
-                <h3 className='text-white font-bold text-lg uppercase tracking-wider italic'>
+              {/* Orange Title Bar */}
+              <div className='bg-[#FF6600] py-2.5 text-center'>
+                <h3 className='text-white font-black text-lg uppercase tracking-wider'>
                   {cat.title}
                 </h3>
               </div>
+
+              {/* Image */}
               <div className='relative aspect-[3/4] overflow-hidden'>
                 <Image
                   src={cat.image}
@@ -51,9 +54,10 @@ export default function CategoryBanners() {
                   sizes='(max-width: 640px) 100vw, 33vw'
                   className='object-cover group-hover:scale-105 transition-transform duration-500'
                 />
+                <div className='absolute inset-0 bg-black/5 group-hover:bg-black/20 transition-colors' />
                 <div className='absolute bottom-6 left-1/2 -translate-x-1/2'>
-                  <span className='text-white font-bold text-sm uppercase tracking-wide underline underline-offset-4'>
-                    Shop Now
+                  <span className='bg-[#FF6600] text-white font-bold text-sm px-6 py-2.5 uppercase tracking-wide'>
+                    Ver Produtos
                   </span>
                 </div>
               </div>
