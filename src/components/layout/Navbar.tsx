@@ -116,14 +116,13 @@ export default function Navbar() {
                   height={56}
                   className='w-12 h-12 md:w-14 md:h-14 object-contain'
                 />
-                <div className='hidden sm:block'>
-                  <p className='text-lg font-black text-gray-900 leading-tight'>
-                    SURFERS PARADISE
-                  </p>
-                  <p className='text-[10px] text-gray-500 uppercase tracking-wider'>
-                    Authentic Board Shop
-                  </p>
-                </div>
+                <Image
+                  src='/images/logo-surfers-texto.jpeg'
+                  alt='Surfers Paradise'
+                  width={200}
+                  height={40}
+                  className='hidden sm:block h-6 md:h-7 w-auto object-contain mix-blend-multiply'
+                />
               </div>
             </Link>
 
@@ -245,36 +244,29 @@ export default function Navbar() {
               }}
               onMouseLeave={handleMouseLeave}
             >
-              <div className='max-w-7xl mx-auto px-4 py-6'>
+              <div className='max-w-7xl mx-auto px-4 py-5'>
                 <div className='flex gap-8'>
-                  <div className='flex-1'>
-                    <div className='flex gap-8'>
-                      {splitIntoColumns(getSubcategories(activeMenu)).map(
-                        (column, ci) => (
-                          <div key={ci} className='min-w-[160px]'>
-                            {column.map(sub => (
-                              <Link
-                                key={sub._id}
-                                href={`/categoria/${sub.slug}`}
-                                className='block py-1.5 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
-                                onClick={() => setActiveMenu(null)}
-                              >
-                                {sub.name}
-                              </Link>
-                            ))}
-                          </div>
-                        ),
-                      )}
-                    </div>
-                    <Link
-                      href={`/categoria/${activeMenu}`}
-                      className='inline-block mt-4 text-sm font-semibold text-[#FF6600] hover:text-[#e55b00] transition-colors'
-                      onClick={() => setActiveMenu(null)}
-                    >
-                      Ver todos →
-                    </Link>
+                  {/* Links in vertical columns of 3 */}
+                  <div className='flex-1 flex gap-8'>
+                    {splitIntoColumns(getSubcategories(activeMenu), 3).map(
+                      (column, ci) => (
+                        <div key={ci} className='min-w-[160px]'>
+                          {column.map(sub => (
+                            <Link
+                              key={sub._id}
+                              href={`/categoria/${sub.slug}`}
+                              className='block py-1.5 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                              onClick={() => setActiveMenu(null)}
+                            >
+                              {sub.name}
+                            </Link>
+                          ))}
+                        </div>
+                      ),
+                    )}
                   </div>
 
+                  {/* Promo Image */}
                   {megaImages[activeMenu] && (
                     <div className='hidden lg:block w-[300px] flex-shrink-0'>
                       <Link
@@ -308,7 +300,9 @@ export default function Navbar() {
           />
           <div className='absolute left-0 top-0 bottom-0 w-72 bg-white shadow-xl overflow-y-auto'>
             <div className='p-4 border-b bg-gray-900'>
-              <p className='text-white font-bold'>SURFERS PARADISE</p>
+              <p className='text-white font-bold font-[family-name:var(--font-original-surfer)]'>
+                SURFERS PARADISE
+              </p>
               <p className='text-gray-400 text-xs'>Authentic Board Shop</p>
             </div>
 

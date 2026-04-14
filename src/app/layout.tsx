@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist, Geist_Mono, Original_Surfer } from 'next/font/google';
 import './globals.css';
 import AppProvider from '@/lib/context/AppProvider';
 import CartSidebar from '@/components/layout/CartSidebar';
@@ -11,6 +11,12 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
+  subsets: ['latin'],
+});
+
+const originalSurfer = Original_Surfer({
+  weight: '400',
+  variable: '--font-original-surfer',
   subsets: ['latin'],
 });
 
@@ -41,7 +47,7 @@ export default function RootLayout({
   return (
     <html lang='pt-BR'>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${originalSurfer.variable} antialiased`}
       >
         <AppProvider>
           {children}
