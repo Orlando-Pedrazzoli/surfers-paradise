@@ -143,12 +143,17 @@ export default function ProdutosPage() {
         {/* Sidebar — Desktop */}
         <div className='hidden md:block w-56 flex-shrink-0'>
           <ProductFilters
-            selectedCategory={category}
             selectedBrand={brand}
             minPrice={minPrice}
             maxPrice={maxPrice}
-            onFilterChange={handleFilterChange}
-            onClearFilters={handleClearFilters}
+            onFilterChange={f => {
+              handleFilterChange(f);
+              setShowMobileFilters(false);
+            }}
+            onClearFilters={() => {
+              handleClearFilters();
+              setShowMobileFilters(false);
+            }}
           />
         </div>
 
@@ -167,7 +172,6 @@ export default function ProdutosPage() {
                 </button>
               </div>
               <ProductFilters
-                selectedCategory={category}
                 selectedBrand={brand}
                 minPrice={minPrice}
                 maxPrice={maxPrice}
