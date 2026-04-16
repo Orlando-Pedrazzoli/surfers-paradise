@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import Link from 'next/link';
 
 interface Category {
   _id: string;
@@ -18,12 +19,11 @@ interface Brand {
 }
 
 interface ProductFiltersProps {
-  selectedCategory?: string;
+  categorySlug?: string;
   selectedBrand?: string;
   minPrice?: string;
   maxPrice?: string;
   onFilterChange: (filters: {
-    category?: string;
     brand?: string;
     minPrice?: string;
     maxPrice?: string;
@@ -32,7 +32,7 @@ interface ProductFiltersProps {
 }
 
 export default function ProductFilters({
-  selectedCategory,
+  categorySlug,
   selectedBrand,
   minPrice,
   maxPrice,
@@ -68,13 +68,32 @@ export default function ProductFilters({
     setLocalMaxPrice(maxPrice || '');
   }, [minPrice, maxPrice]);
 
-  const hasActiveFilters =
-    selectedCategory || selectedBrand || minPrice || maxPrice;
+  const hasActiveFilters = selectedBrand || minPrice || maxPrice;
 
-  // Build category tree
-  const rootCategories = categories.filter(c => !c.parent);
-  const getChildren = (parentId: string) =>
-    categories.filter(c => c.parent === parentId);
+  // Find current category context
+  const currentCat = categories.find(c => c.slug === categorySlug);
+
+  // Determine which categories to show in sidebar
+  const getSidebarCategories = () => {
+    if (!currentCat) return { parent: null, siblings: [] };
+
+    if (currentCat.level === 0) {
+      // User is on a parent category (e.g. Wetsuit)
+      // Show subcategories of this parent
+      const children = categories.filter(c => c.parent === currentCat._id);
+      return { parent: currentCat, siblings: children };
+    } else {
+      // User is on a subcategory (e.g. Long John)
+      // Show parent + all sibling subcategories
+      const parent = categories.find(c => c._id === currentCat.parent);
+      if (!parent) return { parent: null, siblings: [] };
+      const siblings = categories.filter(c => c.parent === parent._id);
+      return { parent, siblings };
+    }
+  };
+
+  const { parent: parentCat, siblings: sidebarCategories } =
+    getSidebarCategories();
 
   const handlePriceApply = () => {
     onFilterChange({
@@ -96,58 +115,51 @@ export default function ProductFilters({
         </button>
       )}
 
-      {/* Categories */}
-      <div className='border-b border-gray-200 pb-4 mb-4'>
-        <button
-          onClick={() => setShowCategories(!showCategories)}
-          className='flex items-center justify-between w-full text-sm font-bold text-gray-900 uppercase mb-3'
-        >
-          Categorias
-          {showCategories ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {showCategories && (
-          <div className='space-y-1'>
-            {rootCategories.map(cat => (
-              <div key={cat._id}>
-                <button
-                  onClick={() =>
-                    onFilterChange({
-                      category:
-                        selectedCategory === cat._id ? undefined : cat._id,
-                    })
-                  }
-                  className={`block w-full text-left text-sm py-1 px-2 rounded transition-colors ${
-                    selectedCategory === cat._id
+      {/* Categories - contextual */}
+      {parentCat && sidebarCategories.length > 0 && (
+        <div className='border-b border-gray-200 pb-4 mb-4'>
+          <button
+            onClick={() => setShowCategories(!showCategories)}
+            className='flex items-center justify-between w-full text-sm font-bold text-gray-900 uppercase mb-3'
+          >
+            {parentCat.name}
+            {showCategories ? (
+              <ChevronUp size={16} />
+            ) : (
+              <ChevronDown size={16} />
+            )}
+          </button>
+          {showCategories && (
+            <div className='space-y-1'>
+              {/* Link to parent (show all) */}
+              <Link
+                href={`/categoria/${parentCat.slug}`}
+                className={`block w-full text-left text-sm py-1.5 px-2 rounded transition-colors ${
+                  categorySlug === parentCat.slug
+                    ? 'text-[#FF6600] font-semibold bg-orange-50'
+                    : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium'
+                }`}
+              >
+                Ver tudo
+              </Link>
+              {/* Subcategories */}
+              {sidebarCategories.map(sub => (
+                <Link
+                  key={sub._id}
+                  href={`/categoria/${sub.slug}`}
+                  className={`block w-full text-left text-sm py-1.5 px-2 rounded transition-colors ${
+                    categorySlug === sub.slug
                       ? 'text-[#FF6600] font-semibold bg-orange-50'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
-                  {cat.name}
-                </button>
-                {/* Subcategories */}
-                {getChildren(cat._id).map(sub => (
-                  <button
-                    key={sub._id}
-                    onClick={() =>
-                      onFilterChange({
-                        category:
-                          selectedCategory === sub._id ? undefined : sub._id,
-                      })
-                    }
-                    className={`block w-full text-left text-sm py-1 px-4 rounded transition-colors ${
-                      selectedCategory === sub._id
-                        ? 'text-[#FF6600] font-semibold bg-orange-50'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                    }`}
-                  >
-                    {sub.name}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                  {sub.name}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Brands */}
       <div className='border-b border-gray-200 pb-4 mb-4'>

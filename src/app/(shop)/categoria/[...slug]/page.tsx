@@ -204,11 +204,18 @@ export default function CategoriaPage({
       <div className='flex gap-8'>
         <div className='hidden md:block w-56 flex-shrink-0'>
           <ProductFilters
+            categorySlug={categorySlug}
             selectedBrand={brand}
             minPrice={minPrice}
             maxPrice={maxPrice}
-            onFilterChange={handleFilterChange}
-            onClearFilters={handleClearFilters}
+            onFilterChange={f => {
+              handleFilterChange(f);
+              setShowMobileFilters(false);
+            }}
+            onClearFilters={() => {
+              handleClearFilters();
+              setShowMobileFilters(false);
+            }}
           />
         </div>
 

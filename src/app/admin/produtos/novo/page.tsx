@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Reorder } from 'framer-motion';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import { Upload, X } from 'lucide-react';
@@ -115,6 +116,7 @@ interface CategoryOption {
   _id: string;
   name: string;
   level: number;
+  parent?: string | { _id: string };
 }
 interface BrandOption {
   _id: string;
@@ -539,24 +541,68 @@ export default function AdminProdutoNovoPage() {
         {/* Category & Brand */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Classificação</h2>
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+          <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Categoria *
               </label>
               <select
                 value={form.category}
-                onChange={e => setForm({ ...form, category: e.target.value })}
+                onChange={e => {
+                  setForm({
+                    ...form,
+                    category: e.target.value,
+                    subcategory: '',
+                  });
+                }}
                 required
                 className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               >
                 <option value=''>Selecionar categoria</option>
-                {categories.map(cat => (
-                  <option key={cat._id} value={cat._id}>
-                    {'—'.repeat(cat.level)} {cat.name}
-                  </option>
-                ))}
+                {categories
+                  .filter(cat => cat.level === 0)
+                  .map(cat => (
+                    <option key={cat._id} value={cat._id}>
+                      {cat.name}
+                    </option>
+                  ))}
               </select>
+            </div>
+            <div>
+              <label className='block text-sm font-medium text-gray-700 mb-1'>
+                Subcategoria
+              </label>
+              <select
+                value={form.subcategory}
+                onChange={e =>
+                  setForm({ ...form, subcategory: e.target.value })
+                }
+                disabled={!form.category}
+                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] disabled:bg-gray-100 disabled:cursor-not-allowed'
+              >
+                <option value=''>Selecionar subcategoria</option>
+                {categories
+                  .filter(
+                    cat =>
+                      cat.parent?.toString() === form.category ||
+                      (cat as any).parent?._id?.toString() === form.category,
+                  )
+                  .map(cat => (
+                    <option key={cat._id} value={cat._id}>
+                      {cat.name}
+                    </option>
+                  ))}
+              </select>
+              {form.category &&
+                categories.filter(
+                  cat =>
+                    cat.parent?.toString() === form.category ||
+                    (cat as any).parent?._id?.toString() === form.category,
+                ).length === 0 && (
+                  <p className='text-xs text-gray-400 mt-1'>
+                    Nenhuma subcategoria cadastrada para esta categoria
+                  </p>
+                )}
             </div>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
@@ -576,7 +622,7 @@ export default function AdminProdutoNovoPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className='md:col-span-3'>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Tags (separadas por vírgula)
               </label>
@@ -593,7 +639,11 @@ export default function AdminProdutoNovoPage() {
 
         {/* Images */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
-          <h2 className='text-lg font-semibold mb-4'>Imagens</h2>
+          <h2 className='text-lg font-semibold mb-1'>Imagens</h2>
+          <p className='text-sm text-gray-500 mb-4'>
+            Arraste para reordenar. A primeira imagem será a thumbnail
+            principal.
+          </p>
           <div className='mb-4'>
             <label className='flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#FF6600] hover:bg-orange-50 transition-colors'>
               <Upload size={20} className='text-gray-400' />
@@ -611,27 +661,39 @@ export default function AdminProdutoNovoPage() {
             </label>
           </div>
           {form.images.length > 0 && (
-            <div className='grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3'>
+            <Reorder.Group
+              axis='x'
+              values={form.images}
+              onReorder={newOrder => {
+                setForm(prev => ({
+                  ...prev,
+                  images: newOrder,
+                  thumbnail: newOrder[0] || '',
+                }));
+              }}
+              className='flex flex-wrap gap-3'
+            >
               {form.images.map((url, index) => (
-                <div
-                  key={index}
-                  className={`relative group rounded-lg overflow-hidden border-2 ${form.thumbnail === url ? 'border-[#FF6600]' : 'border-gray-200'}`}
+                <Reorder.Item
+                  key={url}
+                  value={url}
+                  className={`relative group rounded-lg overflow-hidden border-2 cursor-grab active:cursor-grabbing ${index === 0 ? 'border-[#FF6600]' : 'border-gray-200'}`}
+                  style={{ width: 150, height: 150 }}
+                  whileDrag={{
+                    scale: 1.05,
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.3)',
+                    zIndex: 50,
+                  }}
                 >
                   <Image
                     src={url}
                     alt={`Imagem ${index + 1}`}
                     width={150}
                     height={150}
-                    className='w-full aspect-square object-cover'
+                    className='w-full h-full object-cover pointer-events-none'
+                    draggable={false}
                   />
-                  <div className='absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2'>
-                    <button
-                      type='button'
-                      onClick={() => setAsThumbnail(url)}
-                      className='text-xs bg-white text-gray-800 px-2 py-1 rounded hover:bg-orange-100'
-                    >
-                      Thumb
-                    </button>
+                  <div className='absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center'>
                     <button
                       type='button'
                       onClick={() => removeImage(index)}
@@ -640,14 +702,17 @@ export default function AdminProdutoNovoPage() {
                       <X size={12} />
                     </button>
                   </div>
-                  {form.thumbnail === url && (
+                  {index === 0 && (
                     <span className='absolute top-1 left-1 text-[10px] bg-[#FF6600] text-white px-1.5 py-0.5 rounded'>
-                      Thumb
+                      Principal
                     </span>
                   )}
-                </div>
+                  <span className='absolute bottom-1 right-1 text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded'>
+                    {index + 1}
+                  </span>
+                </Reorder.Item>
               ))}
-            </div>
+            </Reorder.Group>
           )}
         </div>
 

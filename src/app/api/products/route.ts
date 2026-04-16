@@ -37,13 +37,17 @@ export async function GET(request: NextRequest) {
     if (category) filter.category = category;
 
     if (categorySlug) {
-      const parentCat = await Category.findOne({ slug: categorySlug }).lean();
-      if (parentCat) {
-        const subcats = await Category.find({ parent: parentCat._id })
-          .select('_id')
-          .lean();
-        const allCatIds = [parentCat._id, ...subcats.map(s => s._id)];
-        filter.category = { $in: allCatIds };
+      const cat = await Category.findOne({ slug: categorySlug }).lean();
+      if (cat) {
+        if (cat.level === 0) {
+          const subcats = await Category.find({ parent: cat._id })
+            .select('_id')
+            .lean();
+          const allCatIds = [cat._id, ...subcats.map(s => s._id)];
+          filter.category = { $in: allCatIds };
+        } else {
+          filter.subcategory = cat._id;
+        }
       }
     }
 
