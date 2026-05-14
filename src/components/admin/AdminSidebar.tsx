@@ -8,6 +8,7 @@ import {
   Package,
   FolderTree,
   Tags,
+  Truck,
   Image as ImageIcon,
   LogOut,
   ExternalLink,
@@ -20,6 +21,7 @@ const menuItems = [
   { label: 'Produtos', href: '/admin/produtos', icon: Package },
   { label: 'Categorias', href: '/admin/categorias', icon: FolderTree },
   { label: 'Marcas', href: '/admin/marcas', icon: Tags },
+  { label: 'Fornecedores', href: '/admin/fornecedores', icon: Truck },
   { label: 'Banners', href: '/admin/configuracoes', icon: ImageIcon },
 ];
 
@@ -28,7 +30,6 @@ export default function AdminSidebar() {
 
   return (
     <aside className='w-64 min-h-screen bg-[#1A1A1A] text-white flex flex-col'>
-      {/* Logo */}
       <div className='px-5 py-5 border-b border-white/10'>
         <Link href='/admin' className='flex items-center gap-3'>
           <Image
@@ -49,7 +50,6 @@ export default function AdminSidebar() {
         </Link>
       </div>
 
-      {/* Navigation */}
       <nav className='flex-1 py-3 overflow-y-auto'>
         {menuItems.map(item => {
           const isActive =
@@ -74,7 +74,6 @@ export default function AdminSidebar() {
         })}
       </nav>
 
-      {/* Footer */}
       <div className='px-3 py-3 border-t border-white/10 space-y-1'>
         <Link
           href='/'
