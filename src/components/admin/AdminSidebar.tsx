@@ -5,6 +5,10 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  ShoppingCart,
+  Receipt,
+  DollarSign,
+  BarChart3,
   Package,
   FolderTree,
   Tags,
@@ -18,6 +22,10 @@ import { cn } from '@/lib/utils/cn';
 
 const menuItems = [
   { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+  { label: 'POS Balcão', href: '/pos', icon: ShoppingCart },
+  { label: 'Pedidos', href: '/admin/pedidos', icon: Receipt },
+  { label: 'Caixa', href: '/admin/caixa', icon: DollarSign },
+  { label: 'Relatórios', href: '/admin/relatorios', icon: BarChart3 },
   { label: 'Produtos', href: '/admin/produtos', icon: Package },
   { label: 'Categorias', href: '/admin/categorias', icon: FolderTree },
   { label: 'Marcas', href: '/admin/marcas', icon: Tags },

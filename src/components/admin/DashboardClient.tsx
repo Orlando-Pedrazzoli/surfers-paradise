@@ -219,13 +219,12 @@ export default function DashboardClient() {
         <div className='grid grid-cols-2 md:grid-cols-4 gap-3'>
           {/* Abrir POS — placeholder que vai para /produtos por enquanto */}
           <Link
-            href='/admin/produtos'
+            href='/pos'
             className='group bg-gradient-to-br from-[#FF6600] to-[#e55b00] text-white rounded-lg p-5 shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5'
           >
             <ShoppingCart size={28} className='mb-2' />
             <p className='font-bold text-base'>Abrir POS</p>
             <p className='text-xs opacity-90 mt-0.5'>Nova venda no balcão</p>
-            <p className='text-[10px] opacity-70 mt-2 italic'>em breve</p>
           </Link>
 
           <Link

@@ -4,47 +4,78 @@ import { IOrder } from '@/lib/types';
 const orderSchema = new Schema<IOrder>(
   {
     orderNumber: { type: String, required: true, unique: true },
+
+    // ═══ UNIFIED COMMERCE ═══
+    channel: {
+      type: String,
+      enum: ['online', 'pos'],
+      required: true,
+      default: 'online',
+      index: true,
+    },
+
+    // Cliente
     user: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     guestEmail: { type: String, default: '' },
+    customerSnapshot: {
+      name: { type: String, default: 'Consumidor' },
+      cpf: { type: String, default: '' },
+      phone: { type: String, default: '' },
+      email: { type: String, default: '' },
+    },
+    cashier: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+
+    // Items
     items: [
       {
+        _id: false,
         product: { type: Schema.Types.ObjectId, ref: 'Product' },
+        sku: { type: String, default: '' },
         name: { type: String, required: true },
-        slug: { type: String, required: true },
-        image: { type: String, required: true },
+        slug: { type: String, default: '' },
+        image: { type: String, default: '' },
         variant: { type: String, default: '' },
-        quantity: { type: Number, required: true },
-        price: { type: Number, required: true },
+        quantity: { type: Number, required: true, min: 1 },
+        price: { type: Number, required: true, min: 0 },
+        costPrice: { type: Number, default: 0 },
       },
     ],
-    subtotal: { type: Number, required: true },
-    shippingCost: { type: Number, required: true },
-    discount: { type: Number, default: 0 },
+
+    // Totais
+    subtotal: { type: Number, required: true, min: 0 },
+    shippingCost: { type: Number, default: 0, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
     coupon: { type: String, default: '' },
-    total: { type: Number, required: true },
+    total: { type: Number, required: true, min: 0 },
+
+    // Endereço (opcional — obrigatório apenas para channel='online' via API validation)
     shippingAddress: {
-      name: { type: String, required: true },
-      street: { type: String, required: true },
-      number: { type: String, required: true },
+      name: { type: String },
+      street: { type: String },
+      number: { type: String },
       complement: { type: String, default: '' },
-      neighborhood: { type: String, required: true },
-      city: { type: String, required: true },
-      state: { type: String, required: true },
-      cep: { type: String, required: true },
-      phone: { type: String, required: true },
-      cpf: { type: String, required: true },
+      neighborhood: { type: String },
+      city: { type: String },
+      state: { type: String },
+      cep: { type: String },
+      phone: { type: String },
+      cpf: { type: String },
     },
+
+    // Pagamento (estendido para POS)
     payment: {
       method: {
         type: String,
-        enum: ['credit_card', 'boleto', 'pix'],
+        enum: ['credit_card', 'debit_card', 'boleto', 'pix', 'cash'],
         required: true,
       },
       status: {
         type: String,
         enum: ['pending', 'paid', 'failed', 'refunded'],
         default: 'pending',
+        index: true,
       },
+      // Online
       pagarmeOrderId: { type: String, default: '' },
       pagarmeChargeId: { type: String, default: '' },
       installments: { type: Number, default: 1 },
@@ -52,8 +83,14 @@ const orderSchema = new Schema<IOrder>(
       boletoBarcode: { type: String, default: '' },
       pixQrCode: { type: String, default: '' },
       pixCopyPaste: { type: String, default: '' },
+      // Balcão
+      cashReceived: { type: Number, default: 0 },
+      cashChange: { type: Number, default: 0 },
+      // Comum
       paidAt: { type: Date },
     },
+
+    // Shipping (opcional — só online)
     shipping: {
       method: { type: String, default: '' },
       carrier: { type: String, default: '' },
@@ -63,6 +100,8 @@ const orderSchema = new Schema<IOrder>(
       shippedAt: { type: Date },
       deliveredAt: { type: Date },
     },
+
+    // Status
     status: {
       type: String,
       enum: [
@@ -74,17 +113,39 @@ const orderSchema = new Schema<IOrder>(
         'cancelled',
       ],
       default: 'pending',
+      index: true,
     },
+
+    // Cancelamento
+    cancellationReason: { type: String, default: '' },
+    cancelledAt: { type: Date },
+
+    // Meta
     notes: { type: String, default: '' },
     ip: { type: String, default: '' },
   },
   { timestamps: true },
 );
 
-orderSchema.index({ orderNumber: 1 });
-orderSchema.index({ user: 1 });
-orderSchema.index({ status: 1 });
+// Indexes
+orderSchema.index({ channel: 1, status: 1 });
+orderSchema.index({ channel: 1, createdAt: -1 });
+orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ 'payment.status': 1 });
 orderSchema.index({ createdAt: -1 });
+
+// Geração de orderNumber se não fornecido
+orderSchema.pre('save', async function () {
+  if (!this.orderNumber) {
+    const prefix = this.channel === 'pos' ? 'POS' : 'WEB';
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 9000 + 1000); // 4 dígitos
+    this.orderNumber = `${prefix}${year}${month}${day}-${random}`;
+  }
+});
 
 const Order: Model<IOrder> =
   mongoose.models.Order || mongoose.model<IOrder>('Order', orderSchema);

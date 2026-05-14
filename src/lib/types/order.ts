@@ -1,25 +1,39 @@
 import { Types } from 'mongoose';
 
-export type PaymentMethod = 'credit_card' | 'boleto' | 'pix';
+// Métodos de pagamento expandidos para POS + online
+export type PaymentMethod =
+  | 'credit_card' // Cartão de crédito (online + balcão)
+  | 'debit_card' // Cartão de débito (balcão)
+  | 'boleto' // Boleto (online)
+  | 'pix' // PIX (online + balcão)
+  | 'cash'; // Dinheiro (balcão)
+
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+
 export type OrderStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'processing'
-  | 'shipped'
-  | 'delivered'
-  | 'cancelled';
+  | 'pending' // Aguardando pagamento (online)
+  | 'confirmed' // Pagamento confirmado
+  | 'processing' // Preparando (online)
+  | 'shipped' // Enviado (online)
+  | 'delivered' // Entregue / Finalizada balcão
+  | 'cancelled'; // Cancelado
+
+// Canal de venda — Unified Commerce
+export type OrderChannel = 'online' | 'pos';
 
 export interface IOrderItem {
   product: Types.ObjectId;
+  sku: string;
   name: string;
   slug: string;
   image: string;
   variant?: string;
   quantity: number;
-  price: number;
+  price: number; // Preço unitário no momento da venda
+  costPrice?: number; // Custo no momento da venda (para relatório de margem)
 }
 
+// Endereço opcional (obrigatório só para canal online)
 export interface IShippingAddress {
   name: string;
   street: string;
@@ -33,9 +47,18 @@ export interface IShippingAddress {
   cpf: string;
 }
 
+// Snapshot do cliente — para POS, cliente pode ser walk-in (sem User)
+export interface ICustomerSnapshot {
+  name: string;
+  cpf?: string;
+  phone?: string;
+  email?: string;
+}
+
 export interface IOrderPayment {
   method: PaymentMethod;
   status: PaymentStatus;
+  // Online (Pagar.me)
   pagarmeOrderId?: string;
   pagarmeChargeId?: string;
   installments?: number;
@@ -43,6 +66,10 @@ export interface IOrderPayment {
   boletoBarcode?: string;
   pixQrCode?: string;
   pixCopyPaste?: string;
+  // Balcão (POS)
+  cashReceived?: number; // Quanto o cliente entregou em dinheiro
+  cashChange?: number; // Troco devolvido
+  // Comum
   paidAt?: Date;
 }
 
@@ -59,19 +86,24 @@ export interface IOrderShipping {
 export interface IOrder {
   _id: Types.ObjectId;
   orderNumber: string;
-  user?: Types.ObjectId;
+  channel: OrderChannel; // 'online' | 'pos'
+  user?: Types.ObjectId | null; // null se for walk-in
   guestEmail?: string;
+  customerSnapshot?: ICustomerSnapshot; // Sempre preenchido (até "Consumidor")
+  cashier?: Types.ObjectId | null; // Quem operou a venda (POS) — futuro
   items: IOrderItem[];
   subtotal: number;
   shippingCost: number;
   discount: number;
   coupon?: string;
   total: number;
-  shippingAddress: IShippingAddress;
+  shippingAddress?: IShippingAddress; // Opcional (obrigatório só para canal online)
   payment: IOrderPayment;
-  shipping: IOrderShipping;
+  shipping?: IOrderShipping; // Opcional (não existe em POS)
   status: OrderStatus;
   notes?: string;
+  cancellationReason?: string;
+  cancelledAt?: Date;
   ip?: string;
   createdAt: Date;
   updatedAt: Date;
