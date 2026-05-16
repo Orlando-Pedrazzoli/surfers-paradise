@@ -1,3 +1,4 @@
+// src/components/layout/Navbar.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -20,15 +21,19 @@ interface CatalogData {
   brands: { _id: string; name: string; slug: string }[];
 }
 
+// ═══════════════════════════════════════════════════════════════
+// IMAGENS DOS MEGA-MENUS
+// ═══════════════════════════════════════════════════════════════
+// As keys correspondem aos SLUGS das categorias raiz no banco.
+// Quando a Adriana enviar as fotos finais, basta substituir os
+// ficheiros em /public/images/ com os nomes abaixo.
+//
+// Decks e Leashes não têm submenu, então não precisam de imagem.
+
 const megaImages: Record<string, string> = {
   pranchas: '/images/mega-pranchas.jpg',
   quilhas: '/images/mega-quilhas.jpg',
-  deck: '/images/mega-deck.jpg',
-  leash: '/images/mega-leash.jpg',
-  wetsuit: '/images/mega-wetsuit.jpg',
-  parafinas: '/images/mega-parafinas.jpg',
-  acessorios: '/images/mega-acessorios.jpg',
-  'sup-longboard-funboard': '/images/mega-sup.jpg',
+  wetsuits: '/images/mega-wetsuits.jpg',
   capas: '/images/mega-capas.jpg',
 };
 

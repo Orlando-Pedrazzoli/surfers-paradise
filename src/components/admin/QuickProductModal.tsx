@@ -1,8 +1,11 @@
+// src/components/admin/QuickProductModal.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Loader2, Zap } from 'lucide-react';
+import { X, Loader2, Zap, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import QuickBrandModal from './QuickBrandModal';
+import QuickCategoryModal from './QuickCategoryModal';
 
 interface QuickProductModalProps {
   onClose: () => void;
@@ -45,6 +48,10 @@ export default function QuickProductModal({
   const [loading, setLoading] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
 
+  // Modais on-the-fly
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+
   // Carregar marcas e categorias
   useEffect(() => {
     const fetchOptions = async () => {
@@ -71,14 +78,43 @@ export default function QuickProductModal({
     fetchOptions();
   }, []);
 
-  // ESC fecha modal
+  // ESC fecha modal (mas não fecha se algum modal interno estiver aberto)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading) onClose();
+      if (
+        e.key === 'Escape' &&
+        !loading &&
+        !showBrandModal &&
+        !showCategoryModal
+      ) {
+        onClose();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [loading, onClose]);
+  }, [loading, showBrandModal, showCategoryModal, onClose]);
+
+  // Callbacks para os modais
+  const handleBrandCreated = (newBrand: { _id: string; name: string }) => {
+    setBrands(prev =>
+      [...prev, newBrand].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    setBrand(newBrand._id);
+    setShowBrandModal(false);
+  };
+
+  const handleCategoryCreated = (newCategory: {
+    _id: string;
+    name: string;
+    level: number;
+  }) => {
+    // Só aceita categorias raiz no QuickProductModal
+    if (newCategory.level === 0) {
+      setCategories(prev => [...prev, newCategory]);
+      setCategory(newCategory._id);
+    }
+    setShowCategoryModal(false);
+  };
 
   const priceNum = parseFloat(price.replace(',', '.')) || 0;
   const stockNum = parseInt(stock) || 0;
@@ -226,41 +262,61 @@ export default function QuickProductModal({
               </div>
             </div>
 
-            {/* MARCA + CATEGORIA */}
+            {/* MARCA + CATEGORIA com botões + Nova */}
             <div className='grid grid-cols-2 gap-2'>
               <div>
                 <label className='block text-sm font-medium text-gray-700 mb-1'>
                   Marca *
                 </label>
-                <select
-                  value={brand}
-                  onChange={e => setBrand(e.target.value)}
-                  className='w-full px-3 py-2.5 border-2 border-gray-300 rounded-md focus:outline-none focus:border-[#FF6600] text-sm'
-                >
-                  <option value=''>Selecionar...</option>
-                  {brands.map(b => (
-                    <option key={b._id} value={b._id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
+                <div className='flex gap-1'>
+                  <select
+                    value={brand}
+                    onChange={e => setBrand(e.target.value)}
+                    className='flex-1 min-w-0 px-3 py-2.5 border-2 border-gray-300 rounded-md focus:outline-none focus:border-[#FF6600] text-sm'
+                  >
+                    <option value=''>Selecionar...</option>
+                    {brands.map(b => (
+                      <option key={b._id} value={b._id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type='button'
+                    onClick={() => setShowBrandModal(true)}
+                    title='Criar nova marca'
+                    className='shrink-0 px-2.5 py-2.5 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
               </div>
               <div>
                 <label className='block text-sm font-medium text-gray-700 mb-1'>
                   Categoria *
                 </label>
-                <select
-                  value={category}
-                  onChange={e => setCategory(e.target.value)}
-                  className='w-full px-3 py-2.5 border-2 border-gray-300 rounded-md focus:outline-none focus:border-[#FF6600] text-sm'
-                >
-                  <option value=''>Selecionar...</option>
-                  {categories.map(c => (
-                    <option key={c._id} value={c._id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <div className='flex gap-1'>
+                  <select
+                    value={category}
+                    onChange={e => setCategory(e.target.value)}
+                    className='flex-1 min-w-0 px-3 py-2.5 border-2 border-gray-300 rounded-md focus:outline-none focus:border-[#FF6600] text-sm'
+                  >
+                    <option value=''>Selecionar...</option>
+                    {categories.map(c => (
+                      <option key={c._id} value={c._id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type='button'
+                    onClick={() => setShowCategoryModal(true)}
+                    title='Criar nova categoria'
+                    className='shrink-0 px-2.5 py-2.5 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -304,6 +360,23 @@ export default function QuickProductModal({
           </form>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════
+          MODAIS ON-THE-FLY (sobrepostos)
+          ═══════════════════════════════════════════════════════ */}
+      {showBrandModal && (
+        <QuickBrandModal
+          onClose={() => setShowBrandModal(false)}
+          onCreated={handleBrandCreated}
+        />
+      )}
+      {showCategoryModal && (
+        <QuickCategoryModal
+          onClose={() => setShowCategoryModal(false)}
+          onCreated={handleCategoryCreated}
+          parentId={null}
+        />
+      )}
     </div>
   );
 }

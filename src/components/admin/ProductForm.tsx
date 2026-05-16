@@ -1,3 +1,4 @@
+// src/components/admin/ProductForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -13,7 +14,10 @@ import {
   CheckCircle2,
   Circle,
   AlertCircle,
+  Plus,
 } from 'lucide-react';
+import QuickBrandModal from './QuickBrandModal';
+import QuickCategoryModal from './QuickCategoryModal';
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -293,6 +297,11 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Modais on-the-fly
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showSubcategoryModal, setShowSubcategoryModal] = useState(false);
+
   // Form state
   const [form, setForm] = useState({
     name: initialData?.name || '',
@@ -373,6 +382,45 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     };
     fetchData();
   }, []);
+
+  // Callbacks para os modais on-the-fly
+  const handleBrandCreated = (newBrand: { _id: string; name: string }) => {
+    setBrands(prev =>
+      [...prev, newBrand].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    setForm(prev => ({ ...prev, brand: newBrand._id }));
+    setShowBrandModal(false);
+  };
+
+  const handleCategoryCreated = (newCategory: {
+    _id: string;
+    name: string;
+    level: number;
+    parent?: string;
+  }) => {
+    setCategories(prev => [...prev, newCategory]);
+    setForm(prev => ({
+      ...prev,
+      category: newCategory._id,
+      subcategory: '',
+    }));
+    setShowCategoryModal(false);
+  };
+
+  const handleSubcategoryCreated = (newSubcategory: {
+    _id: string;
+    name: string;
+    level: number;
+    parent?: string;
+  }) => {
+    setCategories(prev => [...prev, newSubcategory]);
+    setForm(prev => ({ ...prev, subcategory: newSubcategory._id }));
+    setShowSubcategoryModal(false);
+  };
+
+  // Nome da categoria parent (para o modal de subcategoria)
+  const parentCategoryName =
+    categories.find(c => c._id === form.category)?.name || '';
 
   // Auto-slug (apenas no modo create)
   const handleNameChange = (name: string) => {
@@ -555,6 +603,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
       setSaving(false);
     }
   };
+
   // ═══════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════
@@ -651,7 +700,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </p>
 
           <div className='space-y-3'>
-            {/* Disponível no balcão */}
             <label
               className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 form.isAvailableInStore
@@ -681,7 +729,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </div>
             </label>
 
-            {/* Publicar no site */}
             <label
               className={`flex items-start gap-4 p-4 rounded-lg border-2 transition-all ${
                 form.isPublishedOnline
@@ -933,85 +980,137 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════
-            CLASSIFICAÇÃO (Categoria + Marca + Tags)
+            CLASSIFICAÇÃO (Categoria + Marca + Tags) — COM BOTÕES + NOVA
             ═══════════════════════════════════════════════════════ */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Classificação</h2>
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+            {/* CATEGORIA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Categoria *
               </label>
-              <select
-                value={form.category}
-                onChange={e =>
-                  setForm({
-                    ...form,
-                    category: e.target.value,
-                    subcategory: '',
-                  })
-                }
-                required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-              >
-                <option value=''>Selecionar categoria</option>
-                {categories
-                  .filter(cat => cat.level === 0)
-                  .map(cat => (
-                    <option key={cat._id} value={cat._id}>
-                      {cat.name}
-                    </option>
-                  ))}
-              </select>
+              <div className='flex gap-2'>
+                <select
+                  value={form.category}
+                  onChange={e =>
+                    setForm({
+                      ...form,
+                      category: e.target.value,
+                      subcategory: '',
+                    })
+                  }
+                  required
+                  className='flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  <option value=''>Selecionar categoria</option>
+                  {categories
+                    .filter(cat => cat.level === 0)
+                    .map(cat => (
+                      <option key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type='button'
+                  onClick={() => setShowCategoryModal(true)}
+                  title='Criar nova categoria'
+                  className='shrink-0 px-3 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors flex items-center gap-1'
+                >
+                  <Plus size={16} />
+                  <span className='hidden sm:inline text-sm font-medium'>
+                    Nova
+                  </span>
+                </button>
+              </div>
             </div>
+
+            {/* SUBCATEGORIA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Subcategoria
               </label>
-              <select
-                value={form.subcategory}
-                onChange={e =>
-                  setForm({ ...form, subcategory: e.target.value })
-                }
-                disabled={!form.category}
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] disabled:bg-gray-100 disabled:cursor-not-allowed'
-              >
-                <option value=''>Selecionar subcategoria</option>
-                {categories
-                  .filter(cat => extractId(cat.parent) === form.category)
-                  .map(cat => (
-                    <option key={cat._id} value={cat._id}>
-                      {cat.name}
-                    </option>
-                  ))}
-              </select>
+              <div className='flex gap-2'>
+                <select
+                  value={form.subcategory}
+                  onChange={e =>
+                    setForm({ ...form, subcategory: e.target.value })
+                  }
+                  disabled={!form.category}
+                  className='flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] disabled:bg-gray-100 disabled:cursor-not-allowed'
+                >
+                  <option value=''>Selecionar subcategoria</option>
+                  {categories
+                    .filter(cat => extractId(cat.parent) === form.category)
+                    .map(cat => (
+                      <option key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type='button'
+                  onClick={() => setShowSubcategoryModal(true)}
+                  disabled={!form.category}
+                  title={
+                    form.category
+                      ? 'Criar nova subcategoria'
+                      : 'Selecione uma categoria primeiro'
+                  }
+                  className='shrink-0 px-3 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed'
+                >
+                  <Plus size={16} />
+                  <span className='hidden sm:inline text-sm font-medium'>
+                    Nova
+                  </span>
+                </button>
+              </div>
               {form.category &&
                 categories.filter(
                   cat => extractId(cat.parent) === form.category,
                 ).length === 0 && (
                   <p className='text-xs text-gray-400 mt-1'>
-                    Nenhuma subcategoria cadastrada para esta categoria
+                    Nenhuma subcategoria cadastrada. Clica em &quot;+ Nova&quot;
+                    para criar.
                   </p>
                 )}
             </div>
+
+            {/* MARCA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Marca *
               </label>
-              <select
-                value={form.brand}
-                onChange={e => setForm({ ...form, brand: e.target.value })}
-                required
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-              >
-                <option value=''>Selecionar marca</option>
-                {brands.map(brand => (
-                  <option key={brand._id} value={brand._id}>
-                    {brand.name}
-                  </option>
-                ))}
-              </select>
+              <div className='flex gap-2'>
+                <select
+                  value={form.brand}
+                  onChange={e => setForm({ ...form, brand: e.target.value })}
+                  required
+                  className='flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  <option value=''>Selecionar marca</option>
+                  {brands.map(brand => (
+                    <option key={brand._id} value={brand._id}>
+                      {brand.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type='button'
+                  onClick={() => setShowBrandModal(true)}
+                  title='Criar nova marca'
+                  className='shrink-0 px-3 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors flex items-center gap-1'
+                >
+                  <Plus size={16} />
+                  <span className='hidden sm:inline text-sm font-medium'>
+                    Nova
+                  </span>
+                </button>
+              </div>
             </div>
+
+            {/* TAGS */}
             <div className='md:col-span-3'>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Tags (separadas por vírgula)
@@ -1685,7 +1784,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         {/* ═══════════════════════════════════════════════════════
             SEO
             ═══════════════════════════════════════════════════════ */}
-
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>SEO</h2>
           <div className='grid grid-cols-1 gap-4'>
@@ -1740,7 +1838,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           >
             Cancelar
           </button>
-          {/* Status info no botão */}
           <div className='flex-1 flex items-center justify-end gap-2 text-sm text-gray-500'>
             {completion.status === 'complete' && (
               <span className='flex items-center gap-1.5 text-green-700'>
@@ -1761,6 +1858,31 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
       </form>
+
+      {/* ═══════════════════════════════════════════════════════
+          MODAIS ON-THE-FLY
+          ═══════════════════════════════════════════════════════ */}
+      {showBrandModal && (
+        <QuickBrandModal
+          onClose={() => setShowBrandModal(false)}
+          onCreated={handleBrandCreated}
+        />
+      )}
+      {showCategoryModal && (
+        <QuickCategoryModal
+          onClose={() => setShowCategoryModal(false)}
+          onCreated={handleCategoryCreated}
+          parentId={null}
+        />
+      )}
+      {showSubcategoryModal && form.category && (
+        <QuickCategoryModal
+          onClose={() => setShowSubcategoryModal(false)}
+          onCreated={handleSubcategoryCreated}
+          parentId={form.category}
+          parentName={parentCategoryName}
+        />
+      )}
     </div>
   );
 }
