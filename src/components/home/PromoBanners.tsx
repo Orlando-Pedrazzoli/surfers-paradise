@@ -14,13 +14,13 @@ const banners: PromoBanner[] = [
   {
     image: '/images/fcs2.jpg',
     alt: 'Quilhas FCS II',
-    href: '/marca/fcs-ii',
+    href: '/categoria/quilhas-sistema-fcs-ii',
     label: 'ENCAIXE FCS2',
   },
   {
     image: '/images/futures.jpg',
     alt: 'Quilhas Futures',
-    href: '/marca/futures',
+    href: '/categoria/quilhas-sistema-futures',
     label: 'ENCAIXE FUTURES',
   },
 ];

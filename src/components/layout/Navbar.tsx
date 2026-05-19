@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Search, User, Menu, X, ChevronDown } from 'lucide-react';
+import { Search, User, Menu, X, ChevronDown, ArrowRight } from 'lucide-react';
 import { mainCategories } from '@/lib/config/navigation';
 import CartIcon from '@/components/layout/CartIcon';
 
@@ -22,19 +22,44 @@ interface CatalogData {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// IMAGENS DOS MEGA-MENUS
+// CONFIGURAÇÃO DOS MEGA-MENUS
 // ═══════════════════════════════════════════════════════════════
-// As keys correspondem aos SLUGS das categorias raiz no banco.
-// Quando a Adriana enviar as fotos finais, basta substituir os
+// Cada categoria com submenu pode ter uma imagem promocional com
+// CTA. Quando a Adriana enviar as fotos finais, substitua os
 // ficheiros em /public/images/ com os nomes abaixo.
-//
-// Decks e Leashes não têm submenu, então não precisam de imagem.
 
-const megaImages: Record<string, string> = {
-  pranchas: '/images/mega-pranchas.jpg',
-  quilhas: '/images/mega-quilhas.jpg',
-  wetsuits: '/images/mega-wetsuits.jpg',
-  capas: '/images/mega-capas.jpg',
+interface MegaPromo {
+  image: string;
+  title: string;
+  subtitle: string;
+  cta: string;
+}
+
+const megaPromos: Record<string, MegaPromo> = {
+  pranchas: {
+    image: '/images/mega-pranchas.jpg',
+    title: 'Pranchas em destaque',
+    subtitle: 'Performance que muda tudo',
+    cta: 'Ver coleção',
+  },
+  quilhas: {
+    image: '/images/mega-quilhas.jpg',
+    title: 'Tecnologia FCS II',
+    subtitle: 'Encaixe perfeito, troca rápida',
+    cta: 'Ver quilhas',
+  },
+  wetsuits: {
+    image: '/images/mega-wetsuits.jpg',
+    title: 'Wetsuits para o ano todo',
+    subtitle: 'Conforto e calor onde importa',
+    cta: 'Ver wetsuits',
+  },
+  capas: {
+    image: '/images/mega-capas.jpg',
+    title: 'Proteção essencial',
+    subtitle: 'Para tua prancha durar mais',
+    cta: 'Ver capas',
+  },
 };
 
 export default function Navbar() {
@@ -92,12 +117,9 @@ export default function Navbar() {
     }, 150);
   };
 
-  const splitIntoColumns = (items: SubCategory[], perColumn: number = 5) => {
-    const columns: SubCategory[][] = [];
-    for (let i = 0; i < items.length; i += perColumn) {
-      columns.push(items.slice(i, i + perColumn));
-    }
-    return columns;
+  const closeMega = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setActiveMenu(null);
   };
 
   return (
@@ -108,6 +130,7 @@ export default function Navbar() {
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className='md:hidden p-2 text-gray-600'
+              aria-label='Abrir menu'
             >
               {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
@@ -146,6 +169,7 @@ export default function Navbar() {
                 <button
                   type='submit'
                   className='absolute right-0 top-0 h-full px-4 bg-[#FF6600] text-white rounded-r-lg hover:bg-[#e55b00] transition-colors'
+                  aria-label='Buscar'
                 >
                   <Search size={18} />
                 </button>
@@ -196,6 +220,7 @@ export default function Navbar() {
               <button
                 type='submit'
                 className='absolute right-0 top-0 h-full px-3 bg-[#FF6600] text-white rounded-r-lg'
+                aria-label='Buscar'
               >
                 <Search size={16} />
               </button>
@@ -207,10 +232,15 @@ export default function Navbar() {
         <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
             <ul className='flex items-center justify-center gap-0'>
-              {mainCategories.map(cat => {
+              {mainCategories.map((cat, idx) => {
                 const slug = getSlugFromHref(cat.href);
                 const subcategories = getSubcategories(slug);
                 const hasSubmenu = subcategories.length > 0;
+                const isActive = activeMenu === slug;
+                const showDropdown = isActive && hasSubmenu;
+                // Alinhar à direita se for uma das 2 últimas categorias com submenu
+                // para não cortar nas bordas do ecrã
+                const alignRight = idx >= mainCategories.length - 2;
 
                 return (
                   <li
@@ -224,75 +254,49 @@ export default function Navbar() {
                       className={`flex items-center gap-1 px-4 py-3 text-sm font-medium transition-colors ${
                         cat.label === 'Promoção'
                           ? 'text-[#FF6600] hover:text-white'
-                          : activeMenu === slug
+                          : isActive
                             ? 'text-white bg-gray-800'
                             : 'text-gray-300 hover:text-white hover:bg-gray-800'
                       }`}
                     >
                       {cat.label}
                       {hasSubmenu && (
-                        <ChevronDown size={12} className='opacity-50' />
+                        <ChevronDown
+                          size={12}
+                          className={`opacity-50 transition-transform ${isActive ? 'rotate-180' : ''}`}
+                        />
                       )}
                     </Link>
+
+                    {/* Dropdown ancorado ao botão */}
+                    {showDropdown && (
+                      <div
+                        className={`absolute top-full bg-white border-t-2 border-[#FF6600] shadow-2xl rounded-b-lg overflow-hidden ${
+                          alignRight ? 'right-0' : 'left-0'
+                        }`}
+                        style={{ width: '560px' }}
+                      >
+                        <div className='p-6'>
+                          <MegaMenuContent
+                            categorySlug={slug}
+                            subcategories={subcategories}
+                            promo={megaPromos[slug]}
+                            onLinkClick={closeMega}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </li>
                 );
               })}
             </ul>
           </div>
 
-          {/* ═══ MEGA-MENU DROPDOWN ═══ */}
-          {activeMenu && (
-            <div
-              className='absolute left-0 right-0 bg-white border-t border-gray-200 shadow-xl z-50'
-              onMouseEnter={() => {
-                if (timeoutRef.current) clearTimeout(timeoutRef.current);
-              }}
-              onMouseLeave={handleMouseLeave}
-            >
-              <div className='max-w-7xl mx-auto px-4 py-5'>
-                <div className='flex gap-8'>
-                  {/* Links in vertical columns of 3 */}
-                  <div className='flex-1 flex gap-8'>
-                    {splitIntoColumns(getSubcategories(activeMenu), 3).map(
-                      (column, ci) => (
-                        <div key={ci} className='min-w-[160px]'>
-                          {column.map(sub => (
-                            <Link
-                              key={sub._id}
-                              href={`/categoria/${sub.slug}`}
-                              className='block py-1.5 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
-                              onClick={() => setActiveMenu(null)}
-                            >
-                              {sub.name}
-                            </Link>
-                          ))}
-                        </div>
-                      ),
-                    )}
-                  </div>
-
-                  {/* Promo Image */}
-                  {megaImages[activeMenu] && (
-                    <div className='hidden lg:block w-[300px] flex-shrink-0'>
-                      <Link
-                        href={`/categoria/${activeMenu}`}
-                        onClick={() => setActiveMenu(null)}
-                        className='block rounded-lg overflow-hidden'
-                      >
-                        <Image
-                          src={megaImages[activeMenu]}
-                          alt={activeMenu}
-                          width={300}
-                          height={200}
-                          className='w-full h-auto object-cover hover:scale-105 transition-transform duration-300'
-                        />
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          {/* ═══════════════════════════════════════════════════════
+              MEGA-MENU DROPDOWN (COMPACTO, ANCORADO AO BOTÃO)
+              ═══════════════════════════════════════════════════════ */}
+          {/* Nota: o dropdown é renderizado dentro de cada <li>, não
+              aqui. Ver MegaMenuDropdown abaixo. */}
         </nav>
       </header>
 
@@ -344,7 +348,11 @@ export default function Navbar() {
                       <Link
                         href={cat.href}
                         onClick={() => setMobileMenuOpen(false)}
-                        className='flex-1 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-[#FF6600]'
+                        className={`flex-1 px-4 py-3 text-sm font-medium ${
+                          cat.label === 'Promoção'
+                            ? 'text-[#FF6600]'
+                            : 'text-gray-700 hover:text-[#FF6600]'
+                        } hover:bg-gray-50`}
                       >
                         {cat.label}
                       </Link>
@@ -354,6 +362,7 @@ export default function Navbar() {
                             setExpandedMobile(isExpanded ? null : slug)
                           }
                           className='px-4 py-3 text-gray-400'
+                          aria-label={`Expandir ${cat.label}`}
                         >
                           <ChevronDown
                             size={14}
@@ -395,5 +404,144 @@ export default function Navbar() {
         </div>
       )}
     </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPONENTE INTERNO: Conteúdo do Mega-Menu
+// ═══════════════════════════════════════════════════════════════
+
+interface MegaMenuContentProps {
+  categorySlug: string;
+  subcategories: SubCategory[];
+  promo?: MegaPromo;
+  onLinkClick: () => void;
+}
+
+// Labels customizados para o header de secção
+const SECTION_HEADERS: Record<string, string> = {
+  pranchas: 'Por tipo',
+  quilhas: 'Por sistema',
+  wetsuits: 'Por categoria',
+  capas: 'Por modelo',
+};
+
+function MegaMenuContent({
+  categorySlug,
+  subcategories,
+  promo,
+  onLinkClick,
+}: MegaMenuContentProps) {
+  // Se não há subcategorias, mostrar mensagem
+  if (subcategories.length === 0) {
+    return (
+      <div className='py-4'>
+        <p className='text-sm text-gray-500'>
+          Nenhuma subcategoria disponível.
+        </p>
+      </div>
+    );
+  }
+
+  const sectionHeader = SECTION_HEADERS[categorySlug] || 'Categorias';
+  const hasPromo = !!promo;
+
+  // Dividir em colunas: 1 coluna se ≤5 items, 2 colunas se >5
+  const itemsPerColumn = 5;
+  const columns: SubCategory[][] = [];
+  for (let i = 0; i < subcategories.length; i += itemsPerColumn) {
+    columns.push(subcategories.slice(i, i + itemsPerColumn));
+  }
+
+  return (
+    <div className={`${hasPromo ? 'grid grid-cols-12 gap-5' : ''}`}>
+      {/* ═══ COLUNA DE LINKS ═══ */}
+      <div
+        className={`${hasPromo ? 'col-span-5' : ''} ${
+          columns.length > 1 && !hasPromo ? 'grid grid-cols-2 gap-6' : ''
+        }`}
+      >
+        {columns.map((column, ci) => (
+          <div key={ci}>
+            {/* Section header — só na primeira coluna */}
+            {ci === 0 && (
+              <h3 className='text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3 pb-2 border-b border-gray-100'>
+                {sectionHeader}
+              </h3>
+            )}
+            {ci > 0 && !hasPromo && (
+              <div className='h-[29px]' aria-hidden='true' />
+            )}
+
+            <ul className='space-y-0'>
+              {column.map(sub => (
+                <li key={sub._id}>
+                  <Link
+                    href={`/categoria/${sub.slug}`}
+                    onClick={onLinkClick}
+                    className='group flex items-center justify-between py-1.5 text-sm text-gray-700 hover:text-[#FF6600] transition-colors'
+                  >
+                    <span className='border-b border-transparent group-hover:border-[#FF6600] transition-colors'>
+                      {sub.name}
+                    </span>
+                    <ArrowRight
+                      size={12}
+                      className='opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-[#FF6600]'
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            {/* "Ver todos" — só no fim da última coluna */}
+            {ci === columns.length - 1 && (
+              <Link
+                href={`/categoria/${categorySlug}`}
+                onClick={onLinkClick}
+                className='inline-flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 text-[11px] font-bold text-[#FF6600] hover:text-[#e55b00] uppercase tracking-wide transition-colors'
+              >
+                Ver todos
+                <ArrowRight size={12} />
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ═══ COLUNA DE IMAGEM PROMO ═══ */}
+      {hasPromo && (
+        <div className='col-span-7'>
+          <Link
+            href={`/categoria/${categorySlug}`}
+            onClick={onLinkClick}
+            className='group relative block rounded-lg overflow-hidden bg-gray-100 aspect-[4/3]'
+          >
+            <Image
+              src={promo.image}
+              alt={promo.title}
+              fill
+              sizes='320px'
+              className='object-cover group-hover:scale-105 transition-transform duration-500'
+            />
+            {/* Gradient overlay */}
+            <div className='absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent' />
+
+            {/* Text content */}
+            <div className='absolute inset-x-0 bottom-0 p-4 text-white'>
+              <p className='text-[10px] uppercase tracking-widest opacity-90 mb-1'>
+                {promo.subtitle}
+              </p>
+              <h4 className='text-base font-bold mb-2.5 leading-tight'>
+                {promo.title}
+              </h4>
+              <span className='inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide bg-[#FF6600] text-white px-2.5 py-1.5 rounded group-hover:bg-white group-hover:text-[#FF6600] transition-colors'>
+                {promo.cta}
+                <ArrowRight size={11} />
+              </span>
+            </div>
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
