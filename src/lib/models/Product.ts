@@ -122,6 +122,38 @@ const productSchema = new Schema<IProduct>(
     colorCode2: { type: String, default: '' },
     size: { type: String, default: '' },
     isMainVariant: { type: Boolean, default: true },
+
+    // ═══ ATRIBUTOS DE QUILHAS (Categoria: Quilhas) ═══
+    // Setup: configuração de fins (Thruster, Twin, Quad, etc.)
+    setup: {
+      type: String,
+      enum: [
+        'thruster',
+        'twin',
+        'twin-1',
+        'quad',
+        'quad-rear',
+        '5-fin',
+        'single',
+        '',
+      ],
+      default: '',
+      index: true,
+    },
+    // Construção/material (PC, PCC, Techflex, etc.)
+    construction: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    // Template/família do template (Performer, Carver, Rake, etc.)
+    template: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
   },
   { timestamps: true },
 );
@@ -139,6 +171,10 @@ productSchema.index({ isActive: 1, isAvailableInStore: 1 });
 productSchema.index({ tags: 1 });
 productSchema.index({ productFamily: 1, isMainVariant: 1 });
 productSchema.index({ name: 'text', tags: 'text', description: 'text' });
+// Indices compostos para filtros de quilhas
+productSchema.index({ category: 1, setup: 1 });
+productSchema.index({ category: 1, construction: 1 });
+productSchema.index({ category: 1, template: 1 });
 
 // HOOK pre('save') — Mongoose 9 async syntax
 productSchema.pre('save', async function () {

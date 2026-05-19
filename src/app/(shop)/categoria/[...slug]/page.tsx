@@ -6,6 +6,7 @@ import { SlidersHorizontal, X } from 'lucide-react';
 import Link from 'next/link';
 import ProductGrid from '@/components/product/ProductGrid';
 import ProductFilters from '@/components/product/ProductFilters';
+import QuilhasFilters from '@/components/product/QuilhasFilters';
 import ProductSort from '@/components/product/ProductSort';
 
 interface Product {
@@ -43,20 +44,30 @@ interface CategoryInfo {
   parent?: string | null;
 }
 
+const PAGE_SIZE = 24;
+
+// Slugs que ativam os filtros específicos de Quilhas
+const QUILHAS_SLUGS = [
+  'quilhas',
+  'quilhas-sistema-fcs-ii',
+  'quilhas-sistema-futures',
+  'quilhas-longboard-sup',
+];
+
 export default function CategoriaPage({
   params,
 }: {
   params: Promise<{ slug: string[] }>;
 }) {
   const { slug } = use(params);
-  const categorySlug = slug[slug.length - 1]; // Last segment is the actual category
+  const categorySlug = slug[slug.length - 1];
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
-    limit: 20,
+    limit: PAGE_SIZE,
     total: 0,
     pages: 0,
   });
@@ -70,8 +81,16 @@ export default function CategoriaPage({
   const page = searchParams.get('page') || '1';
   const sort = searchParams.get('sort') || '-createdAt';
   const brand = searchParams.get('brand') || '';
+  const subcategory = searchParams.get('subcategory') || '';
+  const setup = searchParams.get('setup') || '';
+  const construction = searchParams.get('construction') || '';
+  const template = searchParams.get('template') || '';
+  const size = searchParams.get('size') || '';
   const minPrice = searchParams.get('minPrice') || '';
   const maxPrice = searchParams.get('maxPrice') || '';
+
+  // Detect: é categoria de Quilhas?
+  const isQuilhas = QUILHAS_SLUGS.includes(categorySlug);
 
   // Fetch category info
   useEffect(() => {
@@ -84,7 +103,6 @@ export default function CategoriaPage({
           const current = allCats.find(c => c.slug === categorySlug);
           if (current) {
             setCategoryName(current.name);
-            // Build breadcrumbs
             const crumbs: { name: string; slug: string }[] = [];
             let cat: CategoryInfo | undefined = current;
             while (cat) {
@@ -108,12 +126,17 @@ export default function CategoriaPage({
     try {
       const params = new URLSearchParams({
         page,
-        limit: '20',
+        limit: String(PAGE_SIZE),
         sort,
         isActive: 'true',
         categorySlug,
       });
       if (brand) params.set('brand', brand);
+      if (subcategory) params.set('subcategory', subcategory);
+      if (setup) params.set('setup', setup);
+      if (construction) params.set('construction', construction);
+      if (template) params.set('template', template);
+      if (size) params.set('size', size);
       if (minPrice) params.set('minPrice', minPrice);
       if (maxPrice) params.set('maxPrice', maxPrice);
 
@@ -128,7 +151,19 @@ export default function CategoriaPage({
     } finally {
       setLoading(false);
     }
-  }, [page, sort, categorySlug, brand, minPrice, maxPrice]);
+  }, [
+    page,
+    sort,
+    categorySlug,
+    brand,
+    subcategory,
+    setup,
+    construction,
+    template,
+    size,
+    minPrice,
+    maxPrice,
+  ]);
 
   useEffect(() => {
     fetchProducts();
@@ -158,15 +193,59 @@ export default function CategoriaPage({
     const params = new URLSearchParams(searchParams.toString());
     params.set('page', newPage.toString());
     router.push(`${basePath}?${params.toString()}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleClearFilters = () => {
     router.push(basePath);
   };
 
+  // Render filters condicionalmente
+  const renderFilters = (insideMobileDrawer: boolean = false) => {
+    if (isQuilhas) {
+      return (
+        <QuilhasFilters
+          categorySlug={categorySlug}
+          selectedBrand={brand}
+          selectedSubcategory={subcategory}
+          selectedSetup={setup}
+          selectedConstruction={construction}
+          selectedTemplate={template}
+          selectedSize={size}
+          minPrice={minPrice}
+          maxPrice={maxPrice}
+          onFilterChange={f => {
+            handleFilterChange(f);
+            if (insideMobileDrawer) setShowMobileFilters(false);
+          }}
+          onClearFilters={() => {
+            handleClearFilters();
+            if (insideMobileDrawer) setShowMobileFilters(false);
+          }}
+        />
+      );
+    }
+    // Fallback: filtros genéricos
+    return (
+      <ProductFilters
+        categorySlug={categorySlug}
+        selectedBrand={brand}
+        minPrice={minPrice}
+        maxPrice={maxPrice}
+        onFilterChange={f => {
+          handleFilterChange(f);
+          if (insideMobileDrawer) setShowMobileFilters(false);
+        }}
+        onClearFilters={() => {
+          handleClearFilters();
+          if (insideMobileDrawer) setShowMobileFilters(false);
+        }}
+      />
+    );
+  };
+
   return (
     <div className='max-w-7xl mx-auto px-4 py-6'>
-      {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <Link href='/' className='hover:text-[#FF6600]'>
           Início
@@ -192,7 +271,6 @@ export default function CategoriaPage({
         {categoryName || 'Categoria'}
       </h1>
 
-      {/* Mobile filter toggle */}
       <button
         onClick={() => setShowMobileFilters(true)}
         className='md:hidden flex items-center gap-2 mb-4 px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700'
@@ -203,20 +281,7 @@ export default function CategoriaPage({
 
       <div className='flex gap-8'>
         <div className='hidden md:block w-56 flex-shrink-0'>
-          <ProductFilters
-            categorySlug={categorySlug}
-            selectedBrand={brand}
-            minPrice={minPrice}
-            maxPrice={maxPrice}
-            onFilterChange={f => {
-              handleFilterChange(f);
-              setShowMobileFilters(false);
-            }}
-            onClearFilters={() => {
-              handleClearFilters();
-              setShowMobileFilters(false);
-            }}
-          />
+          {renderFilters(false)}
         </div>
 
         {showMobileFilters && (
@@ -232,24 +297,12 @@ export default function CategoriaPage({
                   <X size={20} />
                 </button>
               </div>
-              <ProductFilters
-                selectedBrand={brand}
-                minPrice={minPrice}
-                maxPrice={maxPrice}
-                onFilterChange={f => {
-                  handleFilterChange(f);
-                  setShowMobileFilters(false);
-                }}
-                onClearFilters={() => {
-                  handleClearFilters();
-                  setShowMobileFilters(false);
-                }}
-              />
+              {renderFilters(true)}
             </div>
           </div>
         )}
 
-        <div className='flex-1'>
+        <div className='flex-1 min-w-0'>
           <ProductSort
             value={sort}
             onChange={handleSortChange}

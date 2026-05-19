@@ -35,6 +35,8 @@ interface Pagination {
   pages: number;
 }
 
+const PAGE_SIZE = 24;
+
 export default function ProdutosPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -42,7 +44,7 @@ export default function ProdutosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
-    limit: 20,
+    limit: PAGE_SIZE,
     total: 0,
     pages: 0,
   });
@@ -61,7 +63,7 @@ export default function ProdutosPage() {
     try {
       const params = new URLSearchParams({
         page,
-        limit: '20',
+        limit: String(PAGE_SIZE),
         sort,
         isActive: 'true',
       });
@@ -93,7 +95,7 @@ export default function ProdutosPage() {
       if (value) params.set(key, value);
       else params.delete(key);
     });
-    params.delete('page'); // Reset page on filter change
+    params.delete('page');
     router.push(`/produtos?${params.toString()}`);
   };
 
@@ -109,6 +111,7 @@ export default function ProdutosPage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set('page', newPage.toString());
     router.push(`/produtos?${params.toString()}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleClearFilters = () => {
@@ -117,7 +120,6 @@ export default function ProdutosPage() {
 
   return (
     <div className='max-w-7xl mx-auto px-4 py-6'>
-      {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <a href='/' className='hover:text-[#FF6600]'>
           Início
@@ -130,7 +132,6 @@ export default function ProdutosPage() {
         Todos os Produtos
       </h1>
 
-      {/* Mobile filter toggle */}
       <button
         onClick={() => setShowMobileFilters(true)}
         className='md:hidden flex items-center gap-2 mb-4 px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700'
@@ -140,7 +141,6 @@ export default function ProdutosPage() {
       </button>
 
       <div className='flex gap-8'>
-        {/* Sidebar — Desktop */}
         <div className='hidden md:block w-56 flex-shrink-0'>
           <ProductFilters
             selectedBrand={brand}
@@ -157,7 +157,6 @@ export default function ProdutosPage() {
           />
         </div>
 
-        {/* Mobile Filters Overlay */}
         {showMobileFilters && (
           <div className='fixed inset-0 z-50 md:hidden'>
             <div
@@ -188,8 +187,7 @@ export default function ProdutosPage() {
           </div>
         )}
 
-        {/* Main Content */}
-        <div className='flex-1'>
+        <div className='flex-1 min-w-0'>
           <ProductSort
             value={sort}
             onChange={handleSortChange}

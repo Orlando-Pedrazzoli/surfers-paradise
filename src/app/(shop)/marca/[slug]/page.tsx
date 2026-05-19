@@ -51,6 +51,8 @@ interface CategoryInfo {
   level?: number;
 }
 
+const PAGE_SIZE = 24;
+
 export default function MarcaPage({
   params,
 }: {
@@ -63,7 +65,7 @@ export default function MarcaPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
-    limit: 20,
+    limit: PAGE_SIZE,
     total: 0,
     pages: 0,
   });
@@ -78,7 +80,6 @@ export default function MarcaPage({
   const minPrice = searchParams.get('minPrice') || '';
   const maxPrice = searchParams.get('maxPrice') || '';
 
-  // Fetch brand info + categories
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -102,7 +103,7 @@ export default function MarcaPage({
     try {
       const params = new URLSearchParams({
         page,
-        limit: '20',
+        limit: String(PAGE_SIZE),
         sort,
         isActive: 'true',
         brand: brandInfo._id,
@@ -148,6 +149,7 @@ export default function MarcaPage({
     const p = new URLSearchParams(searchParams.toString());
     p.set('page', newPage.toString());
     router.push(`${basePath}?${p.toString()}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleClearFilters = () => {
@@ -156,12 +158,10 @@ export default function MarcaPage({
 
   const hasActiveFilters = category || minPrice || maxPrice;
 
-  // Only show root categories for brand page filtering
   const rootCategories = categories.filter(c => c.level === 0);
 
   return (
     <div className='max-w-7xl mx-auto px-4 py-6'>
-      {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <Link href='/' className='hover:text-[#FF6600]'>
           Inicio
@@ -174,7 +174,6 @@ export default function MarcaPage({
         {brandInfo?.name || 'Marca'}
       </h1>
 
-      {/* Mobile filter toggle */}
       <button
         onClick={() => setShowMobileFilters(true)}
         className='md:hidden flex items-center gap-2 mb-4 px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700'
@@ -184,7 +183,6 @@ export default function MarcaPage({
       </button>
 
       <div className='flex gap-8'>
-        {/* Desktop Sidebar */}
         <div className='hidden md:block w-56 flex-shrink-0'>
           <BrandFilters
             categories={rootCategories}
@@ -205,7 +203,6 @@ export default function MarcaPage({
           />
         </div>
 
-        {/* Mobile Sidebar */}
         {showMobileFilters && (
           <div className='fixed inset-0 z-50 md:hidden'>
             <div
@@ -245,7 +242,7 @@ export default function MarcaPage({
           </div>
         )}
 
-        <div className='flex-1'>
+        <div className='flex-1 min-w-0'>
           <ProductSort
             value={sort}
             onChange={handleSortChange}
@@ -263,7 +260,6 @@ export default function MarcaPage({
   );
 }
 
-// ─── Brand-specific filters (inline component) ───
 function BrandFilters({
   categories,
   selectedCategory,
@@ -305,7 +301,6 @@ function BrandFilters({
         </button>
       )}
 
-      {/* Categories */}
       <div className='border-b border-gray-200 pb-4 mb-4'>
         <button
           onClick={() => setShowCategories(!showCategories)}
@@ -337,7 +332,6 @@ function BrandFilters({
         )}
       </div>
 
-      {/* Price */}
       <div className='pb-4'>
         <button
           onClick={() => setShowPrice(!showPrice)}

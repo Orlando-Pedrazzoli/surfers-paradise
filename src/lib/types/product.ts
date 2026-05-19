@@ -22,6 +22,17 @@ export type ProductCompletionStatus = 'incomplete' | 'partial' | 'complete';
 // Origem do produto (NF-e: 0=Nacional, 1=Importado direto, 2=Adquirido no BR, etc)
 export type ProductOrigin = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
 
+// Setup de quilhas (configuração de fins)
+export type FinSetup =
+  | 'thruster'
+  | 'twin'
+  | 'twin-1'
+  | 'quad'
+  | 'quad-rear'
+  | '5-fin'
+  | 'single'
+  | '';
+
 export interface IProduct {
   _id: Types.ObjectId;
 
@@ -103,6 +114,11 @@ export interface IProduct {
   colorCode2?: string;
   size?: string;
   isMainVariant: boolean;
+
+  // Atributos de Quilhas (categoria: Quilhas)
+  setup?: FinSetup;
+  construction?: string;
+  template?: string;
 
   createdAt: Date;
   updatedAt: Date;

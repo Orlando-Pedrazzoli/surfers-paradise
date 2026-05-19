@@ -46,8 +46,8 @@ export default function ProductGrid({
 }: ProductGridProps) {
   if (loading) {
     return (
-      <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
-        {[...Array(6)].map((_, i) => (
+      <div className='grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4'>
+        {[...Array(12)].map((_, i) => (
           <div
             key={i}
             className='bg-gray-100 rounded-lg animate-pulse aspect-[3/4]'
@@ -71,7 +71,7 @@ export default function ProductGrid({
 
   return (
     <div>
-      <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
+      <div className='grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4'>
         {products.map(product => (
           <ProductCard key={product._id} product={product} />
         ))}
@@ -79,11 +79,12 @@ export default function ProductGrid({
 
       {/* Pagination */}
       {pagination && pagination.pages > 1 && onPageChange && (
-        <div className='flex items-center justify-center gap-2 mt-8'>
+        <div className='flex items-center justify-center gap-1 md:gap-2 mt-8 flex-wrap'>
           <button
             onClick={() => onPageChange(pagination.page - 1)}
             disabled={pagination.page <= 1}
             className='p-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+            aria-label='Página anterior'
           >
             <ChevronLeft size={16} />
           </button>
@@ -109,6 +110,8 @@ export default function ProductGrid({
                         ? 'bg-[#FF6600] text-white'
                         : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
                     }`}
+                    aria-label={`Página ${p}`}
+                    aria-current={p === pagination.page ? 'page' : undefined}
                   >
                     {p}
                   </button>
@@ -120,6 +123,7 @@ export default function ProductGrid({
             onClick={() => onPageChange(pagination.page + 1)}
             disabled={pagination.page >= pagination.pages}
             className='p-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+            aria-label='Próxima página'
           >
             <ChevronRight size={16} />
           </button>

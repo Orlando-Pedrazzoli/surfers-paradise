@@ -44,8 +44,15 @@ export async function GET(request: NextRequest) {
 
     const category = searchParams.get('category') || '';
     const categorySlug = searchParams.get('categorySlug') || '';
+    const subcategory = searchParams.get('subcategory') || '';
     const brand = searchParams.get('brand') || '';
     const supplier = searchParams.get('supplier') || '';
+
+    // Atributos de quilhas
+    const setup = searchParams.get('setup') || '';
+    const construction = searchParams.get('construction') || '';
+    const template = searchParams.get('template') || '';
+    const size = searchParams.get('size') || '';
 
     const minPrice = searchParams.get('minPrice');
     const maxPrice = searchParams.get('maxPrice');
@@ -95,8 +102,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Filtro de subcategoria (independente do slug — usado pela sidebar)
+    if (subcategory) filter.subcategory = subcategory;
+
     if (brand) filter.brand = brand;
     if (supplier) filter.supplier = supplier;
+
+    // Filtros de quilhas
+    if (setup) filter.setup = setup;
+    if (construction) filter.construction = construction;
+    if (template) filter.template = template;
+    if (size) filter.size = size;
 
     if (minPrice || maxPrice) {
       const priceFilter: Record<string, number> = {};

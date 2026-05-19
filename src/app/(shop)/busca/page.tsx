@@ -35,6 +35,8 @@ interface Pagination {
   pages: number;
 }
 
+const PAGE_SIZE = 24;
+
 export default function BuscaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -42,7 +44,7 @@ export default function BuscaPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
-    limit: 20,
+    limit: PAGE_SIZE,
     total: 0,
     pages: 0,
   });
@@ -60,14 +62,19 @@ export default function BuscaPage() {
   const fetchResults = useCallback(async () => {
     if (!q.trim()) {
       setProducts([]);
-      setPagination({ page: 1, limit: 20, total: 0, pages: 0 });
+      setPagination({ page: 1, limit: PAGE_SIZE, total: 0, pages: 0 });
       setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const params = new URLSearchParams({ q, page, limit: '20', sort });
+      const params = new URLSearchParams({
+        q,
+        page,
+        limit: String(PAGE_SIZE),
+        sort,
+      });
       const res = await fetch(`/api/products/search?${params}`);
       const data = await res.json();
       if (data.success) {
@@ -103,11 +110,11 @@ export default function BuscaPage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set('page', newPage.toString());
     router.push(`/busca?${params.toString()}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
     <div className='max-w-7xl mx-auto px-4 py-6'>
-      {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <Link href='/' className='hover:text-[#FF6600]'>
           Início
@@ -116,7 +123,6 @@ export default function BuscaPage() {
         <span className='text-gray-700'>Busca</span>
       </nav>
 
-      {/* Search Bar */}
       <form onSubmit={handleSearch} className='mb-6'>
         <div className='flex gap-2 max-w-xl'>
           <div className='relative flex-1'>
@@ -141,7 +147,6 @@ export default function BuscaPage() {
         </div>
       </form>
 
-      {/* Results Header */}
       {q && (
         <h1 className='text-xl font-bold text-gray-900 mb-6'>
           Resultados para:{' '}

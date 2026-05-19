@@ -81,6 +81,60 @@ const PRESET_SIZES = [
 ];
 
 // ═══════════════════════════════════════════════════════════════
+// CONSTANTES PARA QUILHAS
+// ═══════════════════════════════════════════════════════════════
+
+const QUILHAS_CATEGORY_SLUG = 'quilhas';
+
+const SETUP_OPTIONS = [
+  { value: '', label: '— Selecionar —' },
+  { value: 'thruster', label: 'Thruster (3 quilhas)' },
+  { value: 'twin', label: 'Twin (2 quilhas)' },
+  { value: 'twin-1', label: 'Twin + 1' },
+  { value: 'quad', label: 'Quad (4 quilhas)' },
+  { value: 'quad-rear', label: 'Quad Rear (par traseiras)' },
+  { value: '5-fin', label: 'Set 5-Fin (tri/quad)' },
+  { value: 'single', label: 'Single (1 quilha)' },
+];
+
+const CONSTRUCTION_PRESETS = [
+  'Performance Core',
+  'PC AirCore',
+  'PCC',
+  'PCC AirCore',
+  'Performance Glass',
+  'Neo Glass',
+  'Glass Flex',
+  'Neo Carbon',
+  'Honeycomb',
+  'Techflex',
+  'Alpha',
+  'Vapor Core',
+  'Blackstix',
+  'Blackstix+',
+  'Generation Series',
+  'Control Series',
+  'Legacy Series',
+  'RTM Hex',
+  'Fiberglass',
+  'H4 Uni-Carbon',
+  'G-10',
+];
+
+const TEMPLATE_PRESETS = [
+  'Performer',
+  'Carver',
+  'Reactor',
+  'Accelerator',
+  'Rake',
+  'Neutral',
+  'Pivot',
+  'Mayhem',
+];
+
+const PRESET_QUILHA_SIZES = ['S', 'M', 'M-L', 'L', 'XL'];
+
+// ═══════════════════════════════════════════════════════════════
 // SUB-COMPONENTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -139,6 +193,7 @@ function ColorBall({
 interface CategoryOption {
   _id: string;
   name: string;
+  slug?: string;
   level: number;
   parent?: string | { _id: string };
 }
@@ -199,6 +254,10 @@ export interface ProductFormData {
   // Supplier
   supplier?: string | { _id: string } | null;
   supplierProductCode?: string;
+  // Quilhas
+  setup?: string;
+  construction?: string;
+  template?: string;
 }
 
 interface ProductFormProps {
@@ -207,7 +266,7 @@ interface ProductFormProps {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// HELPER: gera slug
+// HELPERS
 // ═══════════════════════════════════════════════════════════════
 
 function generateSlug(text: string): string {
@@ -219,10 +278,6 @@ function generateSlug(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// HELPER: extrai ID de string ou objeto populated
-// ═══════════════════════════════════════════════════════════════
-
 function extractId(value: unknown): string {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -231,10 +286,6 @@ function extractId(value: unknown): string {
   }
   return '';
 }
-
-// ═══════════════════════════════════════════════════════════════
-// HELPER: avalia o que falta para publicar online
-// ═══════════════════════════════════════════════════════════════
 
 interface CompletionCheck {
   status: 'incomplete' | 'partial' | 'complete';
@@ -255,7 +306,6 @@ function evaluateCompletion(form: {
 }): CompletionCheck {
   const missing: string[] = [];
 
-  // Mínimo (vender no balcão)
   if (!form.name?.trim()) missing.push('Nome');
   if (!form.sku?.trim()) missing.push('SKU');
   if (!form.price || form.price <= 0) missing.push('Preço de venda');
@@ -264,7 +314,6 @@ function evaluateCompletion(form: {
 
   const hasMinimum = missing.length === 0;
 
-  // Adicional (publicar online)
   if (!form.description?.trim() || form.description.trim().length < 20) {
     missing.push('Descrição (mínimo 20 caracteres)');
   }
@@ -297,7 +346,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Modais on-the-fly
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubcategoryModal, setShowSubcategoryModal] = useState(false);
@@ -330,17 +378,18 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     salePercentage: initialData?.salePercentage || 0,
     seoTitle: initialData?.seoTitle || '',
     seoDescription: initialData?.seoDescription || '',
-    // Unified Commerce
     isAvailableInStore: initialData?.isAvailableInStore ?? true,
     isPublishedOnline: initialData?.isPublishedOnline ?? false,
-    // Fiscal
     gtin: initialData?.gtin || '',
     ncm: initialData?.ncm || '',
     origin: initialData?.origin || '0',
     cest: initialData?.cest || '',
-    // Supplier
     supplier: extractId(initialData?.supplier),
     supplierProductCode: initialData?.supplierProductCode || '',
+    // Quilhas
+    setup: initialData?.setup || '',
+    construction: initialData?.construction || '',
+    template: initialData?.template || '',
   });
 
   // Family state
@@ -362,10 +411,12 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     initialData?.isMainVariant ?? true,
   );
 
-  // Completion evaluation (real-time)
   const completion = evaluateCompletion(form);
 
-  // Carregar categorias e marcas
+  // Determinar se é uma quilha (categoria selecionada é "quilhas")
+  const selectedCategory = categories.find(c => c._id === form.category);
+  const isQuilha = selectedCategory?.slug === QUILHAS_CATEGORY_SLUG;
+
   useEffect(() => {
     const fetchData = async () => {
       const [catRes, brandRes, supplierRes] = await Promise.all([
@@ -383,7 +434,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     fetchData();
   }, []);
 
-  // Callbacks para os modais on-the-fly
   const handleBrandCreated = (newBrand: { _id: string; name: string }) => {
     setBrands(prev =>
       [...prev, newBrand].sort((a, b) => a.name.localeCompare(b.name)),
@@ -395,10 +445,11 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   const handleCategoryCreated = (newCategory: {
     _id: string;
     name: string;
+    slug?: string;
     level: number;
     parent?: string;
   }) => {
-    setCategories(prev => [...prev, newCategory]);
+    setCategories(prev => [...prev, newCategory as CategoryOption]);
     setForm(prev => ({
       ...prev,
       category: newCategory._id,
@@ -410,19 +461,18 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   const handleSubcategoryCreated = (newSubcategory: {
     _id: string;
     name: string;
+    slug?: string;
     level: number;
     parent?: string;
   }) => {
-    setCategories(prev => [...prev, newSubcategory]);
+    setCategories(prev => [...prev, newSubcategory as CategoryOption]);
     setForm(prev => ({ ...prev, subcategory: newSubcategory._id }));
     setShowSubcategoryModal(false);
   };
 
-  // Nome da categoria parent (para o modal de subcategoria)
   const parentCategoryName =
     categories.find(c => c._id === form.category)?.name || '';
 
-  // Auto-slug (apenas no modo create)
   const handleNameChange = (name: string) => {
     if (isEdit) {
       setForm(prev => ({ ...prev, name }));
@@ -431,7 +481,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     }
   };
 
-  // Image upload
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -477,7 +526,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     });
   };
 
-  // Color/Size helpers
   const selectPresetColor = (p: { name: string; code: string }) => {
     setColor(p.name);
     setColorCode(p.code);
@@ -495,7 +543,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     setIsDualColor(true);
   };
 
-  // Toggle "Publicar online" com validação
   const togglePublishOnline = (checked: boolean) => {
     if (checked && completion.status !== 'complete') {
       toast.error(
@@ -506,7 +553,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     setForm(prev => ({ ...prev, isPublishedOnline: checked }));
   };
 
-  // Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -530,7 +576,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
 
     setSaving(true);
 
-    // Family fields
     const familyFields: Record<string, unknown> = { isMainVariant };
     familyFields.productFamily = productFamily.trim()
       ? generateSlug(productFamily)
@@ -604,11 +649,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════
-
-  // Status badge config
   const statusConfig = {
     complete: {
       bg: 'bg-green-50',
@@ -644,9 +684,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} className='space-y-6'>
-        {/* ═══════════════════════════════════════════════════════
-            STATUS DE COMPLETUDE (sempre no topo)
-            ═══════════════════════════════════════════════════════ */}
+        {/* STATUS */}
         <div
           className={`rounded-lg shadow-sm p-6 border-2 ${currentStatus.bg} ${currentStatus.border}`}
         >
@@ -690,9 +728,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           )}
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            CANAIS DE VENDA (Unified Commerce)
-            ═══════════════════════════════════════════════════════ */}
+        {/* CANAIS DE VENDA */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-1'>Canais de Venda</h2>
           <p className='text-sm text-gray-500 mb-4'>
@@ -771,9 +807,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            INFORMAÇÕES BÁSICAS
-            ═══════════════════════════════════════════════════════ */}
+        {/* INFORMAÇÕES BÁSICAS */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Informações Básicas</h2>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
@@ -827,7 +861,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 }
                 rows={8}
                 placeholder={
-                  'Escreva a descrição do produto.\nCada linha nova (Enter) será respeitada na página do produto.\n\nExemplo:\nPrancha de surf modelo Performance.\nIdeal para ondas de 1 a 2 metros.\nConstrução em EPS com resina epóxi.'
+                  'Escreva a descrição do produto.\nCada linha nova (Enter) será respeitada na página do produto.'
                 }
                 className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] font-mono text-sm leading-relaxed'
               />
@@ -849,9 +883,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            PREÇOS
-            ═══════════════════════════════════════════════════════ */}
+        {/* PREÇOS */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Preços</h2>
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
@@ -979,13 +1011,10 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           )}
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            CLASSIFICAÇÃO (Categoria + Marca + Tags) — COM BOTÕES + NOVA
-            ═══════════════════════════════════════════════════════ */}
+        {/* CLASSIFICAÇÃO */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Classificação</h2>
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-            {/* CATEGORIA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Categoria *
@@ -1026,7 +1055,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </div>
             </div>
 
-            {/* SUBCATEGORIA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Subcategoria
@@ -1077,7 +1105,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 )}
             </div>
 
-            {/* MARCA */}
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Marca *
@@ -1110,7 +1137,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </div>
             </div>
 
-            {/* TAGS */}
             <div className='md:col-span-3'>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
                 Tags (separadas por vírgula)
@@ -1127,8 +1153,94 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════
-            IMAGENS
+            ATRIBUTOS DE QUILHA (condicional)
             ═══════════════════════════════════════════════════════ */}
+        {isQuilha && (
+          <div className='bg-white rounded-lg shadow-sm p-6 border-l-4 border-[#FF6600]'>
+            <h2 className='text-lg font-semibold mb-1'>
+              Atributos de Quilha 🏄
+            </h2>
+            <p className='text-sm text-gray-500 mb-4'>
+              Estes campos aparecem nos filtros da loja. Preencha para que os
+              clientes encontrem este produto.
+            </p>
+            <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Setup (configuração)
+                </label>
+                <select
+                  value={form.setup}
+                  onChange={e => setForm({ ...form, setup: e.target.value })}
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  {SETUP_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Quantas quilhas vêm no jogo
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Construção / Material
+                </label>
+                <input
+                  type='text'
+                  list='construction-presets'
+                  value={form.construction}
+                  onChange={e =>
+                    setForm({ ...form, construction: e.target.value })
+                  }
+                  placeholder='Ex: Performance Core'
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+                <datalist id='construction-presets'>
+                  {CONSTRUCTION_PRESETS.map(c => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Digite ou selecione (PC, PCC, Techflex, etc.)
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Template / Família
+                </label>
+                <input
+                  type='text'
+                  list='template-presets'
+                  value={form.template}
+                  onChange={e => setForm({ ...form, template: e.target.value })}
+                  placeholder='Ex: Performer'
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+                <datalist id='template-presets'>
+                  {TEMPLATE_PRESETS.map(t => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Opcional (Performer, Carver, Rake...)
+                </p>
+              </div>
+            </div>
+
+            <div className='mt-4 p-3 bg-blue-50 rounded-md border border-blue-100 text-sm text-blue-800'>
+              💡 <strong>Dica:</strong> No campo &quot;Tamanho&quot; (mais
+              abaixo, na secção Família), usa <code>S, M, M-L, L, XL</code> (com
+              hífen). Tamanhos como <code>M/L</code> não funcionam nos filtros.
+            </div>
+          </div>
+        )}
+
+        {/* IMAGENS */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-1'>Imagens</h2>
           <p className='text-sm text-gray-500 mb-4'>
@@ -1206,9 +1318,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           )}
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            ESTOQUE & ENVIO
-            ═══════════════════════════════════════════════════════ */}
+        {/* ESTOQUE & ENVIO */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Estoque & Envio</h2>
           <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
@@ -1304,9 +1414,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            FAMÍLIA DE PRODUTOS (Cor, Tamanho, Variantes)
-            ═══════════════════════════════════════════════════════ */}
+        {/* FAMÍLIA DE PRODUTOS */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-2'>
             Família de Produtos (Variantes)
@@ -1545,23 +1653,27 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                     type='text'
                     value={sizeValue}
                     onChange={e => setSizeValue(e.target.value)}
-                    placeholder="Ex: 6'0, 7'2, P, M, G"
+                    placeholder={
+                      isQuilha ? 'Ex: M, L, M-L, XL' : "Ex: 6'0, P, M, G"
+                    }
                     className='w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                   />
                 </div>
                 <div>
                   <p className='text-sm font-medium mb-2'>Tamanhos Rápidos:</p>
                   <div className='flex flex-wrap gap-2'>
-                    {PRESET_SIZES.map(preset => (
-                      <button
-                        key={preset}
-                        type='button'
-                        onClick={() => setSizeValue(preset)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sizeValue === preset ? 'bg-[#FF6600] text-white ring-2 ring-[#FF6600] ring-offset-1' : 'bg-gray-100 text-gray-700 border border-gray-300 hover:border-gray-400'}`}
-                      >
-                        {preset}
-                      </button>
-                    ))}
+                    {(isQuilha ? PRESET_QUILHA_SIZES : PRESET_SIZES).map(
+                      preset => (
+                        <button
+                          key={preset}
+                          type='button'
+                          onClick={() => setSizeValue(preset)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sizeValue === preset ? 'bg-[#FF6600] text-white ring-2 ring-[#FF6600] ring-offset-1' : 'bg-gray-100 text-gray-700 border border-gray-300 hover:border-gray-400'}`}
+                        >
+                          {preset}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
                 {sizeValue && (
@@ -1576,7 +1688,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
             )}
           </div>
 
-          {/* Produto Principal */}
+          {/* Principal */}
           <div className='flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200'>
             <input
               type='checkbox'
@@ -1600,9 +1712,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            VISIBILIDADE (Flags legadas)
-            ═══════════════════════════════════════════════════════ */}
+        {/* MARCADORES */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>Marcadores Especiais</h2>
           <div className='flex flex-wrap gap-6'>
@@ -1663,9 +1773,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            FISCAL & FORNECEDOR
-            ═══════════════════════════════════════════════════════ */}
+        {/* FISCAL */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-1'>Fiscal & Fornecedor</h2>
           <p className='text-sm text-gray-500 mb-4'>
@@ -1781,9 +1889,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            SEO
-            ═══════════════════════════════════════════════════════ */}
+        {/* SEO */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-4'>SEO</h2>
           <div className='grid grid-cols-1 gap-4'>
@@ -1816,9 +1922,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════
-            BOTÕES DE SUBMIT
-            ═══════════════════════════════════════════════════════ */}
+        {/* BOTÕES */}
         <div className='flex gap-3 sticky bottom-0 bg-white p-4 -mx-6 border-t shadow-lg z-10'>
           <button
             type='submit'
@@ -1859,9 +1963,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
       </form>
 
-      {/* ═══════════════════════════════════════════════════════
-          MODAIS ON-THE-FLY
-          ═══════════════════════════════════════════════════════ */}
+      {/* MODAIS */}
       {showBrandModal && (
         <QuickBrandModal
           onClose={() => setShowBrandModal(false)}
