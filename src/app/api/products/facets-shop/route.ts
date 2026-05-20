@@ -9,14 +9,16 @@ const _deps = [Brand];
 void _deps;
 
 /**
- * GET /api/products/facets-shop?categorySlug=quilhas
+ * GET /api/products/facets-shop?categorySlug=wetsuits
  *
  * Retorna os valores únicos de cada filtro disponível para a
  * categoria atual, com counts em tempo real.
  *
  * Query params:
  *   - categorySlug (opcional): filtra por categoria/subcategoria
- *   - brand, setup, construction, template, size, minPrice, maxPrice
+ *   - Filtros de Quilhas: brand, setup, construction, template, size
+ *   - Filtros de Wetsuits: wetsuitType, thickness, gender, wetsuitLine, zipperType
+ *   - Genéricos: subcategory, minPrice, maxPrice
  *     (filtros já aplicados, para counts contextuais)
  *
  * Retorna:
@@ -25,9 +27,17 @@ void _deps;
  *     facets: {
  *       brands: [{ _id, name, count }],
  *       subcategories: [{ _id, name, slug, count }],
+ *       // Quilhas
  *       setups: [{ value, count }],
  *       constructions: [{ value, count }],
  *       templates: [{ value, count }],
+ *       // Wetsuits
+ *       wetsuitTypes: [{ value, count }],
+ *       thicknesses: [{ value, count }],
+ *       genders: [{ value, count }],
+ *       wetsuitLines: [{ value, count }],
+ *       zipperTypes: [{ value, count }],
+ *       // Comum
  *       sizes: [{ value, count }],
  *       priceRange: { min, max }
  *     },
@@ -41,9 +51,21 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const categorySlug = searchParams.get('categorySlug') || '';
     const brand = searchParams.get('brand') || '';
+    const subcategory = searchParams.get('subcategory') || '';
+
+    // Filtros de Quilhas
     const setup = searchParams.get('setup') || '';
     const construction = searchParams.get('construction') || '';
     const template = searchParams.get('template') || '';
+
+    // Filtros de Wetsuits
+    const wetsuitType = searchParams.get('wetsuitType') || '';
+    const thickness = searchParams.get('thickness') || '';
+    const gender = searchParams.get('gender') || '';
+    const wetsuitLine = searchParams.get('wetsuitLine') || '';
+    const zipperType = searchParams.get('zipperType') || '';
+
+    // Comum
     const size = searchParams.get('size') || '';
     const minPrice = searchParams.get('minPrice');
     const maxPrice = searchParams.get('maxPrice');
@@ -91,9 +113,18 @@ export async function GET(request: NextRequest) {
     // ═══ Filtros aplicados (para counts contextuais) ═══
     const appliedFilter = { ...baseFilter };
     if (brand) appliedFilter.brand = brand;
+    if (subcategory) appliedFilter.subcategory = subcategory;
+    // Quilhas
     if (setup) appliedFilter.setup = setup;
     if (construction) appliedFilter.construction = construction;
     if (template) appliedFilter.template = template;
+    // Wetsuits
+    if (wetsuitType) appliedFilter.wetsuitType = wetsuitType;
+    if (thickness) appliedFilter.thickness = thickness;
+    if (gender) appliedFilter.gender = gender;
+    if (wetsuitLine) appliedFilter.wetsuitLine = wetsuitLine;
+    if (zipperType) appliedFilter.zipperType = zipperType;
+    // Comum
     if (size) appliedFilter.size = size;
     if (minPrice || maxPrice) {
       const priceFilter: Record<string, number> = {};
@@ -165,7 +196,8 @@ export async function GET(request: NextRequest) {
       if (!currentCategory || currentCategory.level !== 0) return [];
 
       const filter = { ...appliedFilter };
-      // Não excluir nada — queremos counts reais por subcategoria
+      delete filter.subcategory;
+      // Não excluir mais nada — queremos counts reais por subcategoria
 
       const result = await Product.aggregate([
         { $match: filter },
@@ -185,10 +217,11 @@ export async function GET(request: NextRequest) {
             _id: '$cat._id',
             name: '$cat.name',
             slug: '$cat.slug',
+            order: '$cat.order',
             count: 1,
           },
         },
-        { $sort: { name: 1 } },
+        { $sort: { order: 1, name: 1 } },
       ]);
 
       return result;
@@ -218,17 +251,33 @@ export async function GET(request: NextRequest) {
     const [
       brands,
       subcategories,
+      // Quilhas
       setups,
       constructions,
       templates,
+      // Wetsuits
+      wetsuitTypes,
+      thicknesses,
+      genders,
+      wetsuitLines,
+      zipperTypes,
+      // Comum
       sizes,
       priceRange,
     ] = await Promise.all([
       aggregateBrands(),
       aggregateSubcategories(),
+      // Quilhas
       aggregateField('setup'),
       aggregateField('construction'),
       aggregateField('template'),
+      // Wetsuits
+      aggregateField('wetsuitType'),
+      aggregateField('thickness'),
+      aggregateField('gender'),
+      aggregateField('wetsuitLine'),
+      aggregateField('zipperType'),
+      // Comum
       aggregateField('size'),
       aggregatePriceRange(),
     ]);
@@ -238,9 +287,17 @@ export async function GET(request: NextRequest) {
       facets: {
         brands,
         subcategories,
+        // Quilhas
         setups,
         constructions,
         templates,
+        // Wetsuits
+        wetsuitTypes,
+        thicknesses,
+        genders,
+        wetsuitLines,
+        zipperTypes,
+        // Comum
         sizes,
         priceRange,
       },

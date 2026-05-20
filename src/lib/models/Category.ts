@@ -3,6 +3,8 @@ import { ICategory } from '@/lib/types';
 
 const categorySchema = new Schema<ICategory>(
   {
+    // `unique: true` em slug já cria índice automaticamente — NÃO declarar
+    // categorySchema.index({ slug: 1 }) abaixo (evita warning "Duplicate schema index").
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true },
     description: { type: String, default: '' },
@@ -19,8 +21,14 @@ const categorySchema = new Schema<ICategory>(
   { timestamps: true },
 );
 
+// ═══════════════════════════════════════════════════════════════
+// INDICES
+// ═══════════════════════════════════════════════════════════════
+// O campo `slug` já tem índice por causa do `unique: true`.
+// NÃO declarar categorySchema.index({ slug: 1 }) (causaria warning do Mongoose 9).
+
+// Índice composto para listagem hierárquica (filhos de um parent, ordenados)
 categorySchema.index({ parent: 1, order: 1 });
-categorySchema.index({ slug: 1 });
 
 const Category: Model<ICategory> =
   mongoose.models.Category ||

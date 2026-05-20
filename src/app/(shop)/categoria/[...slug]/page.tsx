@@ -7,6 +7,7 @@ import Link from 'next/link';
 import ProductGrid from '@/components/product/ProductGrid';
 import ProductFilters from '@/components/product/ProductFilters';
 import QuilhasFilters from '@/components/product/QuilhasFilters';
+import WetsuitsFilters from '@/components/product/WetsuitsFilters';
 import ProductSort from '@/components/product/ProductSort';
 
 interface Product {
@@ -54,6 +55,16 @@ const QUILHAS_SLUGS = [
   'quilhas-longboard-sup',
 ];
 
+// Slugs que ativam os filtros específicos de Wetsuits
+const WETSUITS_SLUGS = [
+  'wetsuits',
+  'wetsuits-long-john',
+  'wetsuits-short-john',
+  'wetsuits-jaqueta-neoprene',
+  'wetsuits-lycra-neolycra',
+  'wetsuits-acessorios-neoprene',
+];
+
 export default function CategoriaPage({
   params,
 }: {
@@ -82,15 +93,27 @@ export default function CategoriaPage({
   const sort = searchParams.get('sort') || '-createdAt';
   const brand = searchParams.get('brand') || '';
   const subcategory = searchParams.get('subcategory') || '';
+
+  // Filtros de Quilhas
   const setup = searchParams.get('setup') || '';
   const construction = searchParams.get('construction') || '';
   const template = searchParams.get('template') || '';
+
+  // Filtros de Wetsuits
+  const wetsuitType = searchParams.get('wetsuitType') || '';
+  const thickness = searchParams.get('thickness') || '';
+  const gender = searchParams.get('gender') || '';
+  const wetsuitLine = searchParams.get('wetsuitLine') || '';
+  const zipperType = searchParams.get('zipperType') || '';
+
+  // Comum
   const size = searchParams.get('size') || '';
   const minPrice = searchParams.get('minPrice') || '';
   const maxPrice = searchParams.get('maxPrice') || '';
 
-  // Detect: é categoria de Quilhas?
+  // Detect: categoria especializada
   const isQuilhas = QUILHAS_SLUGS.includes(categorySlug);
+  const isWetsuits = WETSUITS_SLUGS.includes(categorySlug);
 
   // Fetch category info
   useEffect(() => {
@@ -133,9 +156,17 @@ export default function CategoriaPage({
       });
       if (brand) params.set('brand', brand);
       if (subcategory) params.set('subcategory', subcategory);
+      // Quilhas
       if (setup) params.set('setup', setup);
       if (construction) params.set('construction', construction);
       if (template) params.set('template', template);
+      // Wetsuits
+      if (wetsuitType) params.set('wetsuitType', wetsuitType);
+      if (thickness) params.set('thickness', thickness);
+      if (gender) params.set('gender', gender);
+      if (wetsuitLine) params.set('wetsuitLine', wetsuitLine);
+      if (zipperType) params.set('zipperType', zipperType);
+      // Comum
       if (size) params.set('size', size);
       if (minPrice) params.set('minPrice', minPrice);
       if (maxPrice) params.set('maxPrice', maxPrice);
@@ -160,6 +191,11 @@ export default function CategoriaPage({
     setup,
     construction,
     template,
+    wetsuitType,
+    thickness,
+    gender,
+    wetsuitLine,
+    zipperType,
     size,
     minPrice,
     maxPrice,
@@ -200,7 +236,7 @@ export default function CategoriaPage({
     router.push(basePath);
   };
 
-  // Render filters condicionalmente
+  // Render filters condicionalmente baseado na categoria
   const renderFilters = (insideMobileDrawer: boolean = false) => {
     if (isQuilhas) {
       return (
@@ -225,6 +261,33 @@ export default function CategoriaPage({
         />
       );
     }
+
+    if (isWetsuits) {
+      return (
+        <WetsuitsFilters
+          categorySlug={categorySlug}
+          selectedBrand={brand}
+          selectedSubcategory={subcategory}
+          selectedWetsuitType={wetsuitType}
+          selectedThickness={thickness}
+          selectedGender={gender}
+          selectedWetsuitLine={wetsuitLine}
+          selectedZipperType={zipperType}
+          selectedSize={size}
+          minPrice={minPrice}
+          maxPrice={maxPrice}
+          onFilterChange={f => {
+            handleFilterChange(f);
+            if (insideMobileDrawer) setShowMobileFilters(false);
+          }}
+          onClearFilters={() => {
+            handleClearFilters();
+            if (insideMobileDrawer) setShowMobileFilters(false);
+          }}
+        />
+      );
+    }
+
     // Fallback: filtros genéricos
     return (
       <ProductFilters

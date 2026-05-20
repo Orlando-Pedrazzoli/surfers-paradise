@@ -20,7 +20,7 @@ import QuickBrandModal from './QuickBrandModal';
 import QuickCategoryModal from './QuickCategoryModal';
 
 // ═══════════════════════════════════════════════════════════════
-// CONSTANTES
+// CONSTANTES GERAIS
 // ═══════════════════════════════════════════════════════════════
 
 const PRESET_COLORS = [
@@ -133,6 +133,94 @@ const TEMPLATE_PRESETS = [
 ];
 
 const PRESET_QUILHA_SIZES = ['S', 'M', 'M-L', 'L', 'XL'];
+
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTES PARA WETSUITS
+// ═══════════════════════════════════════════════════════════════
+
+const WETSUITS_CATEGORY_SLUG = 'wetsuits';
+
+const WETSUIT_TYPE_OPTIONS = [
+  { value: '', label: '— Selecionar —' },
+  { value: 'long-john', label: 'Long John (manga e perna longa)' },
+  { value: 'short-john', label: 'Short John (manga ou perna curta)' },
+  { value: 'jaqueta', label: 'Jaqueta de Neoprene' },
+  { value: 'lycra', label: 'Lycra / Camisa Térmica' },
+  { value: 'calca', label: 'Calça de Neoprene' },
+  { value: 'bermuda', label: 'Bermuda Térmica' },
+  { value: 'maio', label: 'Maiô Feminino' },
+  { value: 'botinha', label: 'Botinha / Boot' },
+  { value: 'luva', label: 'Luva / Glove' },
+  { value: 'gorro', label: 'Gorro / Hood' },
+  { value: 'capacete', label: 'Capacete' },
+  { value: 'meia', label: 'Meia de Neoprene' },
+];
+
+const THICKNESS_PRESETS = [
+  '1/1',
+  '1.5mm',
+  '2mm',
+  '2/2',
+  '3/2',
+  '3mm',
+  '4/3',
+  '5/3',
+  '5/4',
+  '6/5',
+];
+
+const WETSUIT_LINE_PRESETS = [
+  // Rip Curl
+  'E-Bomb E7',
+  'E-Bomb',
+  'Flashbomb',
+  'Fusion',
+  'G-Bomb',
+  'Dawn Patrol',
+  'Omega',
+  'Freelite',
+  // O'Neill
+  'Hyperfreak',
+  'Psycho One',
+  'Psycho Tech',
+  'Epic',
+  // Hurley
+  'Advantage Max',
+  'Advantage Plus',
+  'Advantage',
+  // Vissla
+  '7 Seas',
+  'High Seas',
+  'North Seas',
+];
+
+const ZIPPER_OPTIONS = [
+  { value: '', label: '— Selecionar —' },
+  { value: 'zip-free', label: 'Zip Free (sem zíper)' },
+  { value: 'chest-zip', label: 'Chest Zip (peito)' },
+  { value: 'back-zip', label: 'Back Zip (costas)' },
+  { value: 'front-zip', label: 'Front Zip (frontal)' },
+];
+
+const GENDER_OPTIONS = [
+  { value: '', label: '— Selecionar —' },
+  { value: 'masculino', label: 'Masculino' },
+  { value: 'feminino', label: 'Feminino' },
+  { value: 'kids', label: 'Infantil / Juvenil' },
+  { value: 'unissex', label: 'Unissex' },
+];
+
+const PRESET_WETSUIT_SIZES = [
+  'PP',
+  'P',
+  'MP',
+  'M',
+  'MS',
+  'MG',
+  'G',
+  'GG',
+  'XGG',
+];
 
 // ═══════════════════════════════════════════════════════════════
 // SUB-COMPONENTES
@@ -258,6 +346,12 @@ export interface ProductFormData {
   setup?: string;
   construction?: string;
   template?: string;
+  // Wetsuits
+  wetsuitType?: string;
+  thickness?: string;
+  gender?: string;
+  wetsuitLine?: string;
+  zipperType?: string;
 }
 
 interface ProductFormProps {
@@ -390,6 +484,12 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     setup: initialData?.setup || '',
     construction: initialData?.construction || '',
     template: initialData?.template || '',
+    // Wetsuits
+    wetsuitType: initialData?.wetsuitType || '',
+    thickness: initialData?.thickness || '',
+    gender: initialData?.gender || '',
+    wetsuitLine: initialData?.wetsuitLine || '',
+    zipperType: initialData?.zipperType || '',
   });
 
   // Family state
@@ -413,9 +513,10 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
 
   const completion = evaluateCompletion(form);
 
-  // Determinar se é uma quilha (categoria selecionada é "quilhas")
+  // Determinar tipo de produto pela categoria selecionada
   const selectedCategory = categories.find(c => c._id === form.category);
   const isQuilha = selectedCategory?.slug === QUILHAS_CATEGORY_SLUG;
+  const isWetsuit = selectedCategory?.slug === WETSUITS_CATEGORY_SLUG;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -674,6 +775,19 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   };
 
   const currentStatus = statusConfig[completion.status];
+
+  // Determinar lista de tamanhos preset por categoria
+  const sizePresets = isQuilha
+    ? PRESET_QUILHA_SIZES
+    : isWetsuit
+      ? PRESET_WETSUIT_SIZES
+      : PRESET_SIZES;
+
+  const sizePlaceholder = isQuilha
+    ? 'Ex: M, L, M-L, XL'
+    : isWetsuit
+      ? 'Ex: P, M, MG, G, GG'
+      : "Ex: 6'0, P, M, G";
 
   return (
     <div>
@@ -1240,6 +1354,141 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </div>
         )}
 
+        {/* ═══════════════════════════════════════════════════════
+            ATRIBUTOS DE WETSUIT (condicional)
+            ═══════════════════════════════════════════════════════ */}
+        {isWetsuit && (
+          <div className='bg-white rounded-lg shadow-sm p-6 border-l-4 border-[#FF6600]'>
+            <h2 className='text-lg font-semibold mb-1'>
+              Atributos de Wetsuit 🌊
+            </h2>
+            <p className='text-sm text-gray-500 mb-4'>
+              Estes campos aparecem nos filtros da loja. Preencha para que os
+              clientes encontrem este produto.
+            </p>
+            <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Tipo de Produto
+                </label>
+                <select
+                  value={form.wetsuitType}
+                  onChange={e =>
+                    setForm({ ...form, wetsuitType: e.target.value })
+                  }
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  {WETSUIT_TYPE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Categoriza no filtro principal
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Espessura
+                </label>
+                <input
+                  type='text'
+                  list='thickness-presets'
+                  value={form.thickness}
+                  onChange={e =>
+                    setForm({ ...form, thickness: e.target.value })
+                  }
+                  placeholder='Ex: 3/2'
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+                <datalist id='thickness-presets'>
+                  {THICKNESS_PRESETS.map(t => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Use <code>3/2</code> (não <code>3/2mm</code>)
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Gênero
+                </label>
+                <select
+                  value={form.gender}
+                  onChange={e => setForm({ ...form, gender: e.target.value })}
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  {GENDER_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Público-alvo do produto
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Linha / Modelo
+                </label>
+                <input
+                  type='text'
+                  list='wetsuit-line-presets'
+                  value={form.wetsuitLine}
+                  onChange={e =>
+                    setForm({ ...form, wetsuitLine: e.target.value })
+                  }
+                  placeholder='Ex: E-Bomb E7'
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+                <datalist id='wetsuit-line-presets'>
+                  {WETSUIT_LINE_PRESETS.map(l => (
+                    <option key={l} value={l} />
+                  ))}
+                </datalist>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Nome da linha da marca
+                </p>
+              </div>
+
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Sistema de Entrada
+                </label>
+                <select
+                  value={form.zipperType}
+                  onChange={e =>
+                    setForm({ ...form, zipperType: e.target.value })
+                  }
+                  className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                >
+                  {ZIPPER_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className='text-xs text-gray-400 mt-1'>
+                  Tipo de zíper / abertura
+                </p>
+              </div>
+            </div>
+
+            <div className='mt-4 p-3 bg-blue-50 rounded-md border border-blue-100 text-sm text-blue-800'>
+              💡 <strong>Dica de tamanho:</strong> No campo &quot;Tamanho&quot;
+              (secção Família, mais abaixo), usa{' '}
+              <code>PP, P, MP, M, MG, G, GG</code> para wetsuits adultos. Para
+              botinhas usa números (<code>38, 39, 40...</code>).
+            </div>
+          </div>
+        )}
+
         {/* IMAGENS */}
         <div className='bg-white rounded-lg shadow-sm p-6'>
           <h2 className='text-lg font-semibold mb-1'>Imagens</h2>
@@ -1653,27 +1902,23 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                     type='text'
                     value={sizeValue}
                     onChange={e => setSizeValue(e.target.value)}
-                    placeholder={
-                      isQuilha ? 'Ex: M, L, M-L, XL' : "Ex: 6'0, P, M, G"
-                    }
+                    placeholder={sizePlaceholder}
                     className='w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                   />
                 </div>
                 <div>
                   <p className='text-sm font-medium mb-2'>Tamanhos Rápidos:</p>
                   <div className='flex flex-wrap gap-2'>
-                    {(isQuilha ? PRESET_QUILHA_SIZES : PRESET_SIZES).map(
-                      preset => (
-                        <button
-                          key={preset}
-                          type='button'
-                          onClick={() => setSizeValue(preset)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sizeValue === preset ? 'bg-[#FF6600] text-white ring-2 ring-[#FF6600] ring-offset-1' : 'bg-gray-100 text-gray-700 border border-gray-300 hover:border-gray-400'}`}
-                        >
-                          {preset}
-                        </button>
-                      ),
-                    )}
+                    {sizePresets.map(preset => (
+                      <button
+                        key={preset}
+                        type='button'
+                        onClick={() => setSizeValue(preset)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sizeValue === preset ? 'bg-[#FF6600] text-white ring-2 ring-[#FF6600] ring-offset-1' : 'bg-gray-100 text-gray-700 border border-gray-300 hover:border-gray-400'}`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 {sizeValue && (

@@ -50,8 +50,8 @@ const megaPromos: Record<string, MegaPromo> = {
   },
   wetsuits: {
     image: '/images/mega-wetsuits.jpg',
-    title: 'Wetsuits para o ano todo',
-    subtitle: 'Conforto e calor onde importa',
+    title: 'Inverno chegando',
+    subtitle: 'Wetsuits para o ano todo',
     cta: 'Ver wetsuits',
   },
   capas: {
@@ -61,6 +61,24 @@ const megaPromos: Record<string, MegaPromo> = {
     cta: 'Ver capas',
   },
 };
+
+// ═══════════════════════════════════════════════════════════════
+// LARGURAS DOS MEGA-MENUS POR CATEGORIA
+// ═══════════════════════════════════════════════════════════════
+// Wetsuits tem 6 subcategorias → precisa de mais espaço para
+// 2 colunas de links + promo image. Quilhas e capas têm menos
+// subcategorias, então o menu compacto funciona melhor.
+
+const MEGA_MENU_WIDTHS: Record<string, number> = {
+  pranchas: 560,
+  quilhas: 560,
+  wetsuits: 680, // mais largo para acomodar 2 colunas de links + promo
+  capas: 560,
+  decks: 560,
+  leashes: 560,
+};
+
+const DEFAULT_MENU_WIDTH = 560;
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -242,6 +260,9 @@ export default function Navbar() {
                 // para não cortar nas bordas do ecrã
                 const alignRight = idx >= mainCategories.length - 2;
 
+                // Largura customizada por categoria
+                const menuWidth = MEGA_MENU_WIDTHS[slug] || DEFAULT_MENU_WIDTH;
+
                 return (
                   <li
                     key={cat.href}
@@ -274,7 +295,7 @@ export default function Navbar() {
                         className={`absolute top-full bg-white border-t-2 border-[#FF6600] shadow-2xl rounded-b-lg overflow-hidden ${
                           alignRight ? 'right-0' : 'left-0'
                         }`}
-                        style={{ width: '560px' }}
+                        style={{ width: `${menuWidth}px` }}
                       >
                         <div className='p-6'>
                           <MegaMenuContent
@@ -291,12 +312,6 @@ export default function Navbar() {
               })}
             </ul>
           </div>
-
-          {/* ═══════════════════════════════════════════════════════
-              MEGA-MENU DROPDOWN (COMPACTO, ANCORADO AO BOTÃO)
-              ═══════════════════════════════════════════════════════ */}
-          {/* Nota: o dropdown é renderizado dentro de cada <li>, não
-              aqui. Ver MegaMenuDropdown abaixo. */}
         </nav>
       </header>
 
@@ -422,8 +437,10 @@ interface MegaMenuContentProps {
 const SECTION_HEADERS: Record<string, string> = {
   pranchas: 'Por tipo',
   quilhas: 'Por sistema',
-  wetsuits: 'Por categoria',
+  wetsuits: 'Por tipo',
   capas: 'Por modelo',
+  decks: 'Por modelo',
+  leashes: 'Por modelo',
 };
 
 function MegaMenuContent({
@@ -446,19 +463,50 @@ function MegaMenuContent({
   const sectionHeader = SECTION_HEADERS[categorySlug] || 'Categorias';
   const hasPromo = !!promo;
 
-  // Dividir em colunas: 1 coluna se ≤5 items, 2 colunas se >5
+  // ═══════════════════════════════════════════════════════════════
+  // LÓGICA DE LAYOUT: distribuir subcategorias em colunas
+  // ═══════════════════════════════════════════════════════════════
+  // Casos:
+  //   1. ≤ 5 items, com promo     → 1 coluna de links + promo (5/7)
+  //   2. ≤ 5 items, sem promo     → 1 coluna única
+  //   3. > 5 items, com promo     → 2 colunas estreitas + promo (6/6)
+  //   4. > 5 items, sem promo     → 2 colunas (sem promo)
+
   const itemsPerColumn = 5;
+  const needsTwoColumns = subcategories.length > 5;
   const columns: SubCategory[][] = [];
-  for (let i = 0; i < subcategories.length; i += itemsPerColumn) {
-    columns.push(subcategories.slice(i, i + itemsPerColumn));
+
+  if (needsTwoColumns) {
+    // Distribui o mais equilibrado possível entre 2 colunas
+    // Ex: 6 items → [3, 3]; 7 items → [4, 3]; 8 items → [4, 4]
+    const half = Math.ceil(subcategories.length / 2);
+    columns.push(subcategories.slice(0, half));
+    columns.push(subcategories.slice(half));
+  } else {
+    columns.push(subcategories);
+  }
+
+  // Grid spans: ajusta conforme tem promo ou não, e quantas colunas
+  // de links existem.
+  let linksColSpan = '';
+  let promoColSpan = '';
+
+  if (hasPromo) {
+    if (needsTwoColumns) {
+      linksColSpan = 'col-span-6';
+      promoColSpan = 'col-span-6';
+    } else {
+      linksColSpan = 'col-span-5';
+      promoColSpan = 'col-span-7';
+    }
   }
 
   return (
-    <div className={`${hasPromo ? 'grid grid-cols-12 gap-5' : ''}`}>
-      {/* ═══ COLUNA DE LINKS ═══ */}
+    <div className={hasPromo ? 'grid grid-cols-12 gap-5' : ''}>
+      {/* ═══ COLUNA(S) DE LINKS ═══ */}
       <div
-        className={`${hasPromo ? 'col-span-5' : ''} ${
-          columns.length > 1 && !hasPromo ? 'grid grid-cols-2 gap-6' : ''
+        className={`${linksColSpan} ${
+          needsTwoColumns ? 'grid grid-cols-2 gap-5' : ''
         }`}
       >
         {columns.map((column, ci) => (
@@ -469,7 +517,8 @@ function MegaMenuContent({
                 {sectionHeader}
               </h3>
             )}
-            {ci > 0 && !hasPromo && (
+            {ci > 0 && (
+              // Espaçador para alinhar 2ª coluna com a 1ª
               <div className='h-[29px]' aria-hidden='true' />
             )}
 
@@ -486,7 +535,7 @@ function MegaMenuContent({
                     </span>
                     <ArrowRight
                       size={12}
-                      className='opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-[#FF6600]'
+                      className='opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-[#FF6600] flex-shrink-0 ml-2'
                     />
                   </Link>
                 </li>
@@ -510,7 +559,7 @@ function MegaMenuContent({
 
       {/* ═══ COLUNA DE IMAGEM PROMO ═══ */}
       {hasPromo && (
-        <div className='col-span-7'>
+        <div className={promoColSpan}>
           <Link
             href={`/categoria/${categorySlug}`}
             onClick={onLinkClick}

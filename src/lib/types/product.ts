@@ -33,6 +33,37 @@ export type FinSetup =
   | 'single'
   | '';
 
+// ═══════════════════════════════════════════════════════════════
+// WETSUITS (Categoria: Wetsuits)
+// ═══════════════════════════════════════════════════════════════
+
+// Tipo de produto de neoprene
+export type WetsuitType =
+  | 'long-john' // Manga e perna longa (fullsuit)
+  | 'short-john' // Manga curta ou perna curta (springsuit)
+  | 'jaqueta' // Jaqueta/top de neoprene
+  | 'lycra' // Camisa térmica fina / rashguard
+  | 'calca' // Calça/pant
+  | 'bermuda' // Bermuda térmica
+  | 'maio' // Maiô feminino
+  | 'botinha' // Boot
+  | 'luva' // Glove
+  | 'gorro' // Hood
+  | 'capacete' // Helmet (Gath)
+  | 'meia' // Meia neoprene
+  | '';
+
+// Sistema de entrada do wetsuit (tipo de zíper)
+export type ZipperType =
+  | 'zip-free' // Sem zíper (Z/F) — topo de linha
+  | 'chest-zip' // Zíper no peito (C/Z)
+  | 'back-zip' // Zíper nas costas (B/Z)
+  | 'front-zip' // Zíper frontal (F/Z)
+  | '';
+
+// Gênero/público-alvo
+export type Gender = 'masculino' | 'feminino' | 'kids' | 'unissex' | '';
+
 export interface IProduct {
   _id: Types.ObjectId;
 
@@ -119,6 +150,13 @@ export interface IProduct {
   setup?: FinSetup;
   construction?: string;
   template?: string;
+
+  // Atributos de Wetsuits (categoria: Wetsuits)
+  wetsuitType?: WetsuitType;
+  thickness?: string;
+  gender?: Gender;
+  wetsuitLine?: string;
+  zipperType?: ZipperType;
 
   createdAt: Date;
   updatedAt: Date;

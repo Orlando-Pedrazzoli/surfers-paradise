@@ -43,7 +43,7 @@ export default function HeroBanner() {
 
   useEffect(() => {
     if (banners.length <= 1) return;
-    const interval = setInterval(next, 5000);
+    const interval = setInterval(next, 10000);
     return () => clearInterval(interval);
   }, [banners.length, next]);
 

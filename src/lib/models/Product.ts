@@ -4,6 +4,8 @@ import { IProduct } from '@/lib/types';
 const productSchema = new Schema<IProduct>(
   {
     // IDENTIFICACAO
+    // Note: `unique: true` em slug e sku já cria índices automaticamente.
+    // NÃO declarar productSchema.index({ slug: 1 }) ou .index({ sku: 1 }) abaixo.
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true },
     sku: { type: String, required: true, unique: true, trim: true },
@@ -84,7 +86,8 @@ const productSchema = new Schema<IProduct>(
     },
 
     // FISCAL (NF-e) - todos opcionais
-    gtin: { type: String, default: '', trim: true, index: true },
+    // gtin SEM `index: true` aqui — declarado em productSchema.index() abaixo
+    gtin: { type: String, default: '', trim: true },
     ncm: { type: String, default: '', trim: true },
     origin: {
       type: String,
@@ -111,7 +114,8 @@ const productSchema = new Schema<IProduct>(
     soldCount: { type: Number, default: 0 },
 
     // FAMILY SYSTEM
-    productFamily: { type: String, default: '', index: true },
+    // productFamily SEM `index: true` aqui — declarado em productSchema.index() abaixo
+    productFamily: { type: String, default: '' },
     variantType: {
       type: String,
       enum: ['color', 'size', 'both', ''],
@@ -124,7 +128,8 @@ const productSchema = new Schema<IProduct>(
     isMainVariant: { type: Boolean, default: true },
 
     // ═══ ATRIBUTOS DE QUILHAS (Categoria: Quilhas) ═══
-    // Setup: configuração de fins (Thruster, Twin, Quad, etc.)
+    // Note: índices destes campos declarados em productSchema.index() abaixo,
+    // NÃO usar `index: true` no campo.
     setup: {
       type: String,
       enum: [
@@ -138,43 +143,109 @@ const productSchema = new Schema<IProduct>(
         '',
       ],
       default: '',
-      index: true,
     },
-    // Construção/material (PC, PCC, Techflex, etc.)
     construction: {
       type: String,
       default: '',
       trim: true,
-      index: true,
     },
-    // Template/família do template (Performer, Carver, Rake, etc.)
     template: {
       type: String,
       default: '',
       trim: true,
-      index: true,
+    },
+
+    // ═══ ATRIBUTOS DE WETSUITS (Categoria: Wetsuits) ═══
+    // Note: índices destes campos declarados em productSchema.index() abaixo,
+    // NÃO usar `index: true` no campo.
+    wetsuitType: {
+      type: String,
+      enum: [
+        'long-john',
+        'short-john',
+        'jaqueta',
+        'lycra',
+        'calca',
+        'bermuda',
+        'maio',
+        'botinha',
+        'luva',
+        'gorro',
+        'capacete',
+        'meia',
+        '',
+      ],
+      default: '',
+    },
+    thickness: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    gender: {
+      type: String,
+      enum: ['masculino', 'feminino', 'kids', 'unissex', ''],
+      default: '',
+    },
+    wetsuitLine: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    zipperType: {
+      type: String,
+      enum: ['zip-free', 'chest-zip', 'back-zip', 'front-zip', ''],
+      default: '',
     },
   },
   { timestamps: true },
 );
 
+// ═══════════════════════════════════════════════════════════════
 // INDICES
-productSchema.index({ slug: 1 });
-productSchema.index({ sku: 1 });
+// ═══════════════════════════════════════════════════════════════
+// IMPORTANTE: Campos com `unique: true` (slug, sku) já criam índice
+// automaticamente — NÃO declarar productSchema.index() para eles.
+//
+// Campos com índice declarado aqui NÃO devem ter `index: true` no schema
+// (evita o warning "Duplicate schema index" do Mongoose 9).
+// ═══════════════════════════════════════════════════════════════
+
+// Categorização e relacionamentos
 productSchema.index({ category: 1, subcategory: 1 });
 productSchema.index({ brand: 1 });
 productSchema.index({ supplier: 1 });
+
+// Busca por código de barras
 productSchema.index({ gtin: 1 });
+
+// Filtros de listagem
 productSchema.index({ isActive: 1, isFeatured: 1 });
 productSchema.index({ isActive: 1, isPublishedOnline: 1, isMainVariant: 1 });
 productSchema.index({ isActive: 1, isAvailableInStore: 1 });
 productSchema.index({ tags: 1 });
+
+// Family system
 productSchema.index({ productFamily: 1, isMainVariant: 1 });
+
+// Full-text search
 productSchema.index({ name: 'text', tags: 'text', description: 'text' });
+
 // Indices compostos para filtros de quilhas
 productSchema.index({ category: 1, setup: 1 });
 productSchema.index({ category: 1, construction: 1 });
 productSchema.index({ category: 1, template: 1 });
+
+// Indices compostos para filtros de wetsuits
+productSchema.index({ category: 1, wetsuitType: 1 });
+productSchema.index({ category: 1, thickness: 1 });
+productSchema.index({ category: 1, gender: 1 });
+productSchema.index({ category: 1, wetsuitLine: 1 });
+productSchema.index({ category: 1, zipperType: 1 });
+
+// ═══════════════════════════════════════════════════════════════
+// HOOKS
+// ═══════════════════════════════════════════════════════════════
 
 // HOOK pre('save') — Mongoose 9 async syntax
 productSchema.pre('save', async function () {
