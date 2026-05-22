@@ -48,7 +48,9 @@ export default function HeroBanner() {
   }, [banners.length, next]);
 
   if (loading) {
-    return <div className='w-full aspect-[2.5/1] bg-gray-100 animate-pulse' />;
+    return (
+      <div className='w-full aspect-[4/5] md:aspect-[2.5/1] bg-gray-100 animate-pulse' />
+    );
   }
 
   if (banners.length === 0) return null;
@@ -59,35 +61,50 @@ export default function HeroBanner() {
         className='flex transition-transform duration-500 ease-in-out'
         style={{ transform: `translateX(-${current * 100}%)` }}
       >
-        {banners.map(banner => (
-          <div key={banner._id} className='w-full flex-shrink-0 relative'>
-            {banner.link ? (
-              <Link href={banner.link} className='block'>
-                <div className='relative w-full aspect-[2.5/1]'>
-                  <Image
-                    src={banner.image}
-                    alt={banner.title}
-                    fill
-                    priority
-                    sizes='100vw'
-                    className='object-cover'
-                  />
-                </div>
-              </Link>
-            ) : (
-              <div className='relative w-full aspect-[2.5/1]'>
+        {banners.map((banner, idx) => {
+          const mobileSrc = banner.mobileImage?.trim()
+            ? banner.mobileImage
+            : banner.image;
+
+          const Slide = (
+            <div className='relative w-full aspect-[4/5] md:aspect-[2.5/1]'>
+              {/* Mobile image (hidden on md+) */}
+              <div className='md:hidden absolute inset-0'>
                 <Image
-                  src={banner.image}
+                  src={mobileSrc}
                   alt={banner.title}
                   fill
-                  priority
+                  priority={idx === 0}
                   sizes='100vw'
                   className='object-cover'
                 />
               </div>
-            )}
-          </div>
-        ))}
+              {/* Desktop image (hidden on mobile) */}
+              <div className='hidden md:block absolute inset-0'>
+                <Image
+                  src={banner.image}
+                  alt={banner.title}
+                  fill
+                  priority={idx === 0}
+                  sizes='100vw'
+                  className='object-cover'
+                />
+              </div>
+            </div>
+          );
+
+          return (
+            <div key={banner._id} className='w-full flex-shrink-0 relative'>
+              {banner.link ? (
+                <Link href={banner.link} className='block'>
+                  {Slide}
+                </Link>
+              ) : (
+                Slide
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {banners.length > 1 && (

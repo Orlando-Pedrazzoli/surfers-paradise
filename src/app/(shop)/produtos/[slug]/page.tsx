@@ -1,19 +1,9 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  ChevronUp,
-  ChevronDown,
-  Star,
-  Heart,
-  Share2,
-  ShoppingCart,
-  Check,
-  Truck,
-} from 'lucide-react';
+import { Star, Heart, Share2, ShoppingCart, Check, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 import {
@@ -21,6 +11,7 @@ import {
   calculatePixPrice,
 } from '@/lib/utils/installments';
 import ProductCard from '@/components/product/ProductCard';
+import ProductGallery from '@/components/product/ProductGallery';
 import { useCart } from '@/lib/context/CartProvider';
 import AddToCartModal from '@/components/checkout/AddToCartModal';
 
@@ -111,13 +102,11 @@ export default function ProductDetailPage({
   const [familyProducts, setFamilyProducts] = useState<FamilyProduct[]>([]);
   const [related, setRelated] = useState<RelatedProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentImage, setCurrentImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({});
   const [isFavorite, setIsFavorite] = useState(false);
-  const [thumbStart, setThumbStart] = useState(0);
   const [showCartModal, setShowCartModal] = useState(false);
 
   useEffect(() => {
@@ -129,8 +118,6 @@ export default function ProductDetailPage({
           setProduct(data.product);
           setFamilyProducts(data.familyProducts || []);
           setRelated(data.related || []);
-          setCurrentImage(0);
-          setThumbStart(0);
           setQuantity(1);
         } else {
           router.push('/404');
@@ -165,8 +152,6 @@ export default function ProductDetailPage({
   const pixPrice = calculatePixPrice(product.price);
   const installment = calculateInstallments(product.price);
   const images = product.images.length > 0 ? product.images : [];
-  const maxThumbs = 5;
-  const visibleThumbs = images.slice(thumbStart, thumbStart + maxThumbs);
 
   const colorFamilyProducts = familyProducts.filter(
     fp => ['color', 'both'].includes(fp.variantType || '') && fp.colorCode,
@@ -250,74 +235,9 @@ export default function ProductDetailPage({
       </nav>
 
       {/* Product Section */}
-      <div className='grid grid-cols-1 md:grid-cols-[1fr_1fr] lg:grid-cols-[100px_1fr_1fr] gap-6 mb-12'>
-        {/* Thumbnails — Desktop */}
-        <div className='hidden lg:flex flex-col items-center gap-2'>
-          {images.length > maxThumbs && thumbStart > 0 && (
-            <button
-              onClick={() => setThumbStart(prev => Math.max(0, prev - 1))}
-              className='w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600'
-            >
-              <ChevronUp size={20} />
-            </button>
-          )}
-          {visibleThumbs.map((img, i) => {
-            const realIndex = thumbStart + i;
-            return (
-              <button
-                key={realIndex}
-                onClick={() => setCurrentImage(realIndex)}
-                className={`w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors ${currentImage === realIndex ? 'border-[#FF6600]' : 'border-gray-200 hover:border-gray-400'}`}
-              >
-                <Image
-                  src={img}
-                  alt={`${product.name} ${realIndex + 1}`}
-                  width={80}
-                  height={80}
-                  className='w-full h-full object-contain p-1'
-                />
-              </button>
-            );
-          })}
-          {images.length > maxThumbs &&
-            thumbStart + maxThumbs < images.length && (
-              <button
-                onClick={() => setThumbStart(prev => prev + 1)}
-                className='w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600'
-              >
-                <ChevronDown size={20} />
-              </button>
-            )}
-        </div>
-
-        {/* Main Image */}
-        <div className='relative aspect-square bg-white border border-gray-200 rounded-lg overflow-hidden'>
-          {images.length > 0 ? (
-            <Image
-              src={images[currentImage]}
-              alt={product.name}
-              fill
-              priority
-              sizes='(max-width: 768px) 100vw, 50vw'
-              className='object-contain p-6'
-            />
-          ) : (
-            <div className='flex items-center justify-center h-full text-gray-300'>
-              Sem imagem
-            </div>
-          )}
-          {images.length > 1 && (
-            <div className='lg:hidden absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5'>
-              {images.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCurrentImage(i)}
-                  className={`w-2.5 h-2.5 rounded-full ${i === currentImage ? 'bg-[#FF6600]' : 'bg-gray-300'}`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mb-12'>
+        {/* Gallery */}
+        <ProductGallery images={images} productName={product.name} />
 
         {/* Product Info */}
         <div className='space-y-4'>
