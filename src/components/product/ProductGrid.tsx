@@ -1,7 +1,14 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import ProductCard from '@/components/product/ProductCard';
-import { ChevronLeft, ChevronRight, Package } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Package,
+  Square,
+  LayoutGrid,
+} from 'lucide-react';
 
 interface Product {
   _id: string;
@@ -36,23 +43,88 @@ interface ProductGridProps {
   loading: boolean;
   pagination?: Pagination;
   onPageChange?: (page: number) => void;
+  showViewToggle?: boolean;
 }
+
+type MobileViewMode = '1' | '2';
+const VIEW_MODE_KEY = 'sp-mobile-view-mode';
 
 export default function ProductGrid({
   products,
   loading,
   pagination,
   onPageChange,
+  showViewToggle = true,
 }: ProductGridProps) {
+  // Default: 1 column on mobile (per Orlando's request)
+  const [mobileView, setMobileView] = useState<MobileViewMode>('1');
+
+  // Hydrate from localStorage on mount (avoids SSR mismatch)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      if (saved === '1' || saved === '2') {
+        setMobileView(saved);
+      }
+    } catch {
+      // localStorage may be unavailable (private mode, etc.) — ignore
+    }
+  }, []);
+
+  // Persist on change + cross-tab sync
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mobileView);
+    } catch {
+      // ignore
+    }
+  }, [mobileView]);
+
+  // Listen for changes from other tabs
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (
+        e.key === VIEW_MODE_KEY &&
+        (e.newValue === '1' || e.newValue === '2')
+      ) {
+        setMobileView(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Grid classes: mobile uses view mode; desktop always 3-4 cols
+  const gridClasses =
+    mobileView === '1'
+      ? 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-4'
+      : 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4';
+
   if (loading) {
     return (
-      <div className='grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4'>
-        {[...Array(12)].map((_, i) => (
-          <div
-            key={i}
-            className='bg-gray-100 rounded-lg animate-pulse aspect-[3/4]'
-          />
-        ))}
+      <div>
+        {showViewToggle && (
+          <div className='md:hidden flex justify-end mb-3'>
+            <div className='inline-flex border border-gray-300 rounded-md overflow-hidden bg-white'>
+              <div className='w-10 h-9 bg-gray-100 animate-pulse' />
+              <div className='w-10 h-9 bg-gray-100 animate-pulse border-l border-gray-300' />
+            </div>
+          </div>
+        )}
+        <div
+          className={
+            mobileView === '1'
+              ? 'grid grid-cols-1 md:grid-cols-3 gap-4'
+              : 'grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4'
+          }
+        >
+          {[...Array(8)].map((_, i) => (
+            <div
+              key={i}
+              className='bg-gray-100 rounded-lg animate-pulse aspect-[3/4]'
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -71,13 +143,54 @@ export default function ProductGrid({
 
   return (
     <div>
-      <div className='grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4'>
+      {/* ─── View Toggle (mobile only) ────────────── */}
+      {showViewToggle && (
+        <div className='md:hidden flex justify-end mb-3'>
+          <div
+            className='inline-flex border border-gray-300 rounded-md overflow-hidden bg-white'
+            role='group'
+            aria-label='Modo de visualização'
+          >
+            <button
+              onClick={() => setMobileView('1')}
+              className={`w-10 h-9 flex items-center justify-center transition-colors ${
+                mobileView === '1'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-white text-gray-500 hover:bg-gray-50'
+              }`}
+              aria-label='Ver 1 produto por linha'
+              aria-pressed={mobileView === '1'}
+            >
+              <Square size={18} />
+            </button>
+            <button
+              onClick={() => setMobileView('2')}
+              className={`w-10 h-9 flex items-center justify-center transition-colors border-l border-gray-300 ${
+                mobileView === '2'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-white text-gray-500 hover:bg-gray-50'
+              }`}
+              aria-label='Ver 2 produtos por linha'
+              aria-pressed={mobileView === '2'}
+            >
+              <LayoutGrid size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Product Grid ─────────────────────────── */}
+      <div className={gridClasses}>
         {products.map(product => (
-          <ProductCard key={product._id} product={product} />
+          <ProductCard
+            key={product._id}
+            product={product}
+            expanded={mobileView === '1'}
+          />
         ))}
       </div>
 
-      {/* Pagination */}
+      {/* ─── Pagination ───────────────────────────── */}
       {pagination && pagination.pages > 1 && onPageChange && (
         <div className='flex items-center justify-center gap-1 md:gap-2 mt-8 flex-wrap'>
           <button
