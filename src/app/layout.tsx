@@ -3,17 +3,16 @@ import { Geist, Geist_Mono, Original_Surfer } from 'next/font/google';
 import './globals.css';
 import AppProvider from '@/lib/context/AppProvider';
 import CartSidebar from '@/components/layout/CartSidebar';
+import NewsletterModalTrigger from '@/components/marketing/NewsletterModalTrigger';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
-
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
-
 const originalSurfer = Original_Surfer({
   weight: '400',
   variable: '--font-original-surfer',
@@ -52,6 +51,7 @@ export default function RootLayout({
         <AppProvider>
           {children}
           <CartSidebar />
+          <NewsletterModalTrigger />
         </AppProvider>
       </body>
     </html>

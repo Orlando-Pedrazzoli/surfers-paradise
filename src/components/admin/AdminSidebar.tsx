@@ -1,5 +1,4 @@
 'use client';
-
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -13,13 +12,13 @@ import {
   FolderTree,
   Tags,
   Truck,
+  Ticket,
   Image as ImageIcon,
   LogOut,
   ExternalLink,
 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils/cn';
-
 const menuItems = [
   { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
   { label: 'POS Balcão', href: '/pos', icon: ShoppingCart },
@@ -30,12 +29,11 @@ const menuItems = [
   { label: 'Categorias', href: '/admin/categorias', icon: FolderTree },
   { label: 'Marcas', href: '/admin/marcas', icon: Tags },
   { label: 'Fornecedores', href: '/admin/fornecedores', icon: Truck },
+  { label: 'Cupons', href: '/admin/cupons', icon: Ticket },
   { label: 'Banners', href: '/admin/configuracoes', icon: ImageIcon },
 ];
-
 export default function AdminSidebar() {
   const pathname = usePathname();
-
   return (
     <aside className='w-64 min-h-screen bg-[#1A1A1A] text-white flex flex-col'>
       <div className='px-5 py-5 border-b border-white/10'>
@@ -57,13 +55,11 @@ export default function AdminSidebar() {
           </div>
         </Link>
       </div>
-
       <nav className='flex-1 py-3 overflow-y-auto'>
         {menuItems.map(item => {
           const isActive =
             pathname === item.href ||
             (item.href !== '/admin' && pathname.startsWith(item.href));
-
           return (
             <Link
               key={item.href}
@@ -81,7 +77,6 @@ export default function AdminSidebar() {
           );
         })}
       </nav>
-
       <div className='px-3 py-3 border-t border-white/10 space-y-1'>
         <Link
           href='/'
