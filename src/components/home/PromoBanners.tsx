@@ -45,7 +45,7 @@ export default function PromoBanners() {
               />
               <div className='absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors' />
               <div className='absolute bottom-6 left-1/2 -translate-x-1/2'>
-                <span className='bg-[#FF6600] text-white font-bold text-sm md:text-base px-6 py-2.5 uppercase tracking-wide'>
+                <span className='inline-block whitespace-nowrap rounded-full bg-[#FF6600] text-white font-bold text-sm md:text-base px-6 py-2.5 uppercase tracking-wide'>
                   {banner.label}
                 </span>
               </div>

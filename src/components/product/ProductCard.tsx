@@ -101,12 +101,39 @@ export default function ProductCard({
     }
   }, [product.productFamily]);
 
-  const colorSiblings = familySiblings.filter(
+  // Fallback: o próprio produto, para mostrar cor/tamanho mesmo sem família
+  const selfSibling: FamilySibling = {
+    _id: product._id,
+    name: product.name,
+    slug: product.slug,
+    color: product.color,
+    colorCode: product.colorCode,
+    colorCode2: product.colorCode2,
+    size: product.size,
+    variantType: product.variantType,
+    images: product.images,
+    thumbnail: product.thumbnail,
+    price: product.price,
+    compareAtPrice: product.compareAtPrice,
+    stock: product.stock ?? 999,
+  };
+
+  const familyColors = familySiblings.filter(
     s => ['color', 'both'].includes(s.variantType || '') && s.colorCode,
   );
-  const sizeSiblings = familySiblings.filter(
+  const familySizes = familySiblings.filter(
     s => ['size', 'both'].includes(s.variantType || '') && s.size,
   );
+
+  // Se a família tem variações, mostra todas; senão, mostra a do próprio produto
+  const colorSiblings =
+    familyColors.length > 0
+      ? familyColors
+      : product.colorCode
+        ? [selfSibling]
+        : [];
+  const sizeSiblings =
+    familySizes.length > 0 ? familySizes : product.size ? [selfSibling] : [];
 
   const isLight = (c: string) =>
     ['#FFFFFF', '#FFF', '#ffffff', '#fff', '#F5F5F5', '#FAFAFA'].includes(c);
@@ -263,7 +290,7 @@ export default function ProductCard({
         </h3>
 
         {/* Family Color Variants */}
-        {colorSiblings.length > 1 && (
+        {colorSiblings.length > 0 && (
           <div
             className={`flex items-center justify-center gap-1.5 mb-2 ${expanded ? 'gap-2' : ''}`}
           >
@@ -302,7 +329,7 @@ export default function ProductCard({
         )}
 
         {/* Family Size Variants */}
-        {sizeSiblings.length > 1 && (
+        {sizeSiblings.length > 0 && (
           <div
             className={`flex items-center justify-center gap-1 mb-2 flex-wrap ${expanded ? 'gap-1.5' : ''}`}
           >

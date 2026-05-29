@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Trash2, Minus, Plus, ShoppingCart, Truck, Tag } from 'lucide-react';
+import { Trash2, Minus, Plus, ShoppingCart, Truck, Tag, X } from 'lucide-react';
 import { useCart } from '@/lib/context/CartProvider';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 import { calculateInstallments } from '@/lib/utils/installments';
@@ -17,17 +17,59 @@ export default function CarrinhoPage() {
     itemCount,
     subtotal,
     pixTotal,
+    appliedCoupon,
+    applyCoupon,
+    removeCoupon,
+    discount,
+    total,
   } = useCart();
   const [couponCode, setCouponCode] = useState('');
   const [cep, setCep] = useState('');
   const [couponMessage, setCouponMessage] = useState('');
+  const [couponOk, setCouponOk] = useState(false);
+  const [couponLoading, setCouponLoading] = useState(false);
 
-  const installment = calculateInstallments(subtotal);
+  const installment = calculateInstallments(total);
 
-  const handleCouponApply = () => {
-    if (!couponCode.trim()) return;
-    // TODO: validate coupon via API
-    setCouponMessage('Cupom inválido');
+  const handleCouponApply = async () => {
+    const code = couponCode.trim();
+    if (!code) return;
+    setCouponLoading(true);
+    setCouponMessage('');
+    setCouponOk(false);
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, subtotal }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        applyCoupon({
+          code: data.code,
+          type: data.type,
+          value: data.value,
+          minOrderValue: data.minOrderValue || 0,
+          maxDiscount: data.maxDiscount || 0,
+        });
+        setCouponOk(true);
+        setCouponMessage(data.message || 'Cupom aplicado!');
+        setCouponCode('');
+      } else {
+        setCouponOk(false);
+        setCouponMessage(data.message || 'Cupom inválido');
+      }
+    } catch {
+      setCouponMessage('Erro ao validar cupom');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleCouponRemove = () => {
+    removeCoupon();
+    setCouponMessage('');
+    setCouponOk(false);
   };
 
   const handleShippingCalc = () => {
@@ -273,26 +315,55 @@ export default function CarrinhoPage() {
                   Cupom de desconto
                 </span>
               </div>
-              <div className='flex gap-2'>
-                <input
-                  type='text'
-                  value={couponCode}
-                  onChange={e => {
-                    setCouponCode(e.target.value.toUpperCase());
-                    setCouponMessage('');
-                  }}
-                  placeholder='CÓDIGO'
-                  className='flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-                />
-                <button
-                  onClick={handleCouponApply}
-                  className='px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors'
-                >
-                  Aplicar
-                </button>
-              </div>
-              {couponMessage && (
-                <p className='text-xs text-red-500 mt-1'>{couponMessage}</p>
+
+              {appliedCoupon ? (
+                <div className='flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2'>
+                  <div>
+                    <span className='text-sm font-bold text-green-700'>
+                      {appliedCoupon.code}
+                    </span>
+                    <span className='ml-2 text-xs text-green-600'>
+                      −{formatCurrency(discount)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCouponRemove}
+                    className='text-gray-400 hover:text-red-500'
+                    title='Remover cupom'
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className='flex gap-2'>
+                    <input
+                      type='text'
+                      value={couponCode}
+                      onChange={e => {
+                        setCouponCode(e.target.value.toUpperCase());
+                        setCouponMessage('');
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && handleCouponApply()}
+                      placeholder='CÓDIGO'
+                      className='flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                    />
+                    <button
+                      onClick={handleCouponApply}
+                      disabled={couponLoading}
+                      className='px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50'
+                    >
+                      {couponLoading ? '...' : 'Aplicar'}
+                    </button>
+                  </div>
+                  {couponMessage && (
+                    <p
+                      className={`text-xs mt-1 ${couponOk ? 'text-green-600' : 'text-red-500'}`}
+                    >
+                      {couponMessage}
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -340,6 +411,16 @@ export default function CarrinhoPage() {
                   {formatCurrency(subtotal)}
                 </span>
               </div>
+              {discount > 0 && (
+                <div className='flex justify-between text-sm'>
+                  <span className='text-green-600'>
+                    Desconto ({appliedCoupon?.code})
+                  </span>
+                  <span className='text-green-600 font-medium'>
+                    −{formatCurrency(discount)}
+                  </span>
+                </div>
+              )}
               <div className='flex justify-between text-sm'>
                 <span className='text-gray-600'>Frete</span>
                 <span className='text-gray-400 text-xs'>Calcule acima</span>
@@ -351,7 +432,7 @@ export default function CarrinhoPage() {
               <div className='flex justify-between items-center mb-1'>
                 <span className='text-base font-bold text-gray-900'>Total</span>
                 <span className='text-xl font-black text-gray-900'>
-                  {formatCurrency(subtotal)}
+                  {formatCurrency(total)}
                 </span>
               </div>
               <div className='flex justify-between items-center mb-1'>

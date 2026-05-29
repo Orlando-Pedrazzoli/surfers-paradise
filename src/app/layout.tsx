@@ -4,6 +4,7 @@ import './globals.css';
 import AppProvider from '@/lib/context/AppProvider';
 import CartSidebar from '@/components/layout/CartSidebar';
 import NewsletterModalTrigger from '@/components/marketing/NewsletterModalTrigger';
+import CookieConsent from '@/components/shared/CookieConsent';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -52,6 +53,7 @@ export default function RootLayout({
           {children}
           <CartSidebar />
           <NewsletterModalTrigger />
+          <CookieConsent />
         </AppProvider>
       </body>
     </html>

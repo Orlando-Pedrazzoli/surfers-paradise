@@ -1,5 +1,4 @@
 'use client';
-
 import {
   createContext,
   useContext,
@@ -8,7 +7,6 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-
 export interface CartItem {
   productId: string;
   name: string;
@@ -24,7 +22,13 @@ export interface CartItem {
   weight: number;
   stock: number;
 }
-
+export interface AppliedCoupon {
+  code: string;
+  type: 'percentage' | 'fixed';
+  value: number;
+  minOrderValue: number;
+  maxDiscount: number;
+}
 interface CartContextType {
   items: CartItem[];
   isCartOpen: boolean;
@@ -38,18 +42,44 @@ interface CartContextType {
   itemCount: number;
   subtotal: number;
   pixTotal: number;
+  // Cupom
+  appliedCoupon: AppliedCoupon | null;
+  applyCoupon: (coupon: AppliedCoupon) => void;
+  removeCoupon: () => void;
+  discount: number;
+  total: number;
 }
-
 const CartContext = createContext<CartContextType | undefined>(undefined);
-
 const CART_STORAGE_KEY = 'surfers-paradise-cart';
+const COUPON_STORAGE_KEY = 'surfers-paradise-coupon';
+
+// Calcula o desconto a partir do cupom e do subtotal atual.
+// Recalcula sempre que o carrinho muda (ex.: cupom de % acompanha o subtotal).
+function computeDiscount(
+  coupon: AppliedCoupon | null,
+  subtotal: number,
+): number {
+  if (!coupon) return 0;
+  if (coupon.minOrderValue && subtotal < coupon.minOrderValue) return 0;
+  let d =
+    coupon.type === 'percentage'
+      ? (subtotal * coupon.value) / 100
+      : coupon.value;
+  if (coupon.maxDiscount && coupon.maxDiscount > 0) {
+    d = Math.min(d, coupon.maxDiscount);
+  }
+  d = Math.min(d, subtotal);
+  return Math.round(d * 100) / 100;
+}
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(
+    null,
+  );
   const [isHydrated, setIsHydrated] = useState(false);
-
-  // Load cart from localStorage on mount (client-side only)
+  // Load cart + coupon from localStorage on mount (client-side only)
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CART_STORAGE_KEY);
@@ -57,23 +87,34 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) setItems(parsed);
       }
+      const storedCoupon = localStorage.getItem(COUPON_STORAGE_KEY);
+      if (storedCoupon) {
+        const parsed = JSON.parse(storedCoupon);
+        if (parsed && parsed.code) setAppliedCoupon(parsed);
+      }
     } catch {
       console.warn('Erro ao carregar carrinho');
     }
     setIsHydrated(true);
   }, []);
-
   // Save cart to localStorage whenever items change (skip initial empty state)
   useEffect(() => {
     if (isHydrated) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
     }
   }, [items, isHydrated]);
-
+  // Save coupon to localStorage whenever it changes
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (appliedCoupon) {
+      localStorage.setItem(COUPON_STORAGE_KEY, JSON.stringify(appliedCoupon));
+    } else {
+      localStorage.removeItem(COUPON_STORAGE_KEY);
+    }
+  }, [appliedCoupon, isHydrated]);
   const openCart = useCallback(() => setIsCartOpen(true), []);
   const closeCart = useCallback(() => setIsCartOpen(false), []);
   const toggleCart = useCallback(() => setIsCartOpen(prev => !prev), []);
-
   const addToCart = useCallback(
     (item: Omit<CartItem, 'quantity'>, quantity = 1) => {
       setItems(prev => {
@@ -89,11 +130,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-
   const removeFromCart = useCallback((productId: string) => {
     setItems(prev => prev.filter(i => i.productId !== productId));
   }, []);
-
   const updateQuantity = useCallback((productId: string, quantity: number) => {
     if (quantity <= 0) {
       setItems(prev => prev.filter(i => i.productId !== productId));
@@ -107,15 +146,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
       ),
     );
   }, []);
-
+  const applyCoupon = useCallback((coupon: AppliedCoupon) => {
+    setAppliedCoupon(coupon);
+  }, []);
+  const removeCoupon = useCallback(() => {
+    setAppliedCoupon(null);
+  }, []);
   const clearCart = useCallback(() => {
     setItems([]);
+    setAppliedCoupon(null);
   }, []);
-
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const pixTotal = subtotal * 0.9; // 10% PIX discount
-
+  const discount = computeDiscount(appliedCoupon, subtotal);
+  const total = Math.max(0, subtotal - discount);
+  const pixTotal = total * 0.9; // 10% PIX discount sobre o valor já com cupom
   return (
     <CartContext.Provider
       value={{
@@ -131,13 +176,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
         itemCount,
         subtotal,
         pixTotal,
+        appliedCoupon,
+        applyCoupon,
+        removeCoupon,
+        discount,
+        total,
       }}
     >
       {children}
     </CartContext.Provider>
   );
 }
-
 export function useCart() {
   const context = useContext(CartContext);
   if (!context) {

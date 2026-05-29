@@ -4,9 +4,10 @@ import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
 import Product from '@/lib/models/Product';
 import User from '@/lib/models/User';
+import Coupon from '@/lib/models/Coupon';
 import { OrderChannel, PaymentMethod } from '@/lib/types/order';
 
-const _deps = [Product, User];
+const _deps = [Product, User, Coupon];
 void _deps;
 
 interface OrderItemInput {
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// POST — Criar pedido (com decremento atômico de estoque)
+// POST — Criar pedido (com decremento atômico de estoque + cupom)
 // ═══════════════════════════════════════════════════════════════
 export async function POST(request: NextRequest) {
   try {
@@ -192,7 +193,53 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const discount = body.discount || 0;
+    // ─── Cupom: revalidação no servidor (NÃO confia no discount do client) ───
+    let discount = 0;
+    let couponCode = '';
+    let couponDoc: Awaited<ReturnType<typeof Coupon.findOne>> = null;
+
+    if (body.coupon && body.coupon.trim()) {
+      couponDoc = await Coupon.findOne({
+        code: body.coupon.trim().toUpperCase(),
+      });
+
+      if (!couponDoc) {
+        return NextResponse.json(
+          { success: false, error: 'Cupom inválido' },
+          { status: 400 },
+        );
+      }
+
+      const now = new Date();
+      const usable =
+        couponDoc.isActive &&
+        now >= couponDoc.validFrom &&
+        now <= couponDoc.validUntil &&
+        !(
+          (couponDoc.usageLimit ?? 0) > 0 &&
+          couponDoc.usedCount >= (couponDoc.usageLimit ?? 0)
+        ) &&
+        !(couponDoc.minOrderValue && subtotal < couponDoc.minOrderValue);
+
+      if (!usable) {
+        return NextResponse.json(
+          { success: false, error: 'Cupom não aplicável a este pedido' },
+          { status: 400 },
+        );
+      }
+
+      discount =
+        couponDoc.type === 'percentage'
+          ? (subtotal * couponDoc.value) / 100
+          : couponDoc.value;
+      if (couponDoc.maxDiscount && couponDoc.maxDiscount > 0) {
+        discount = Math.min(discount, couponDoc.maxDiscount);
+      }
+      discount = Math.min(discount, subtotal);
+      discount = Math.round(discount * 100) / 100;
+      couponCode = couponDoc.code;
+    }
+
     const shippingCost = body.shippingCost || 0;
     const total = subtotal - discount + shippingCost;
 
@@ -226,7 +273,7 @@ export async function POST(request: NextRequest) {
     const random = Math.floor(Math.random() * 9000 + 1000);
     const orderNumber = `${prefix}${year}${month}${day}-${random}`;
 
-    // Transação MongoDB para atomicidade (decrementa estoque + cria pedido)
+    // Transação MongoDB para atomicidade (estoque + cupom + pedido)
     const session = await mongoose.startSession();
     let order;
 
@@ -250,6 +297,30 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Incrementar uso do cupom (atômico — respeita usageLimit)
+        if (couponDoc) {
+          const usageLimit = couponDoc.usageLimit ?? 0;
+          if (usageLimit > 0) {
+            const incremented = await Coupon.findOneAndUpdate(
+              {
+                _id: couponDoc._id,
+                usedCount: { $lt: usageLimit },
+              },
+              { $inc: { usedCount: 1 } },
+              { session, new: true },
+            );
+            if (!incremented) {
+              throw new Error('Cupom esgotado');
+            }
+          } else {
+            await Coupon.updateOne(
+              { _id: couponDoc._id },
+              { $inc: { usedCount: 1 } },
+              { session },
+            );
+          }
+        }
+
         // Criar pedido
         const created = await Order.create(
           [
@@ -266,7 +337,7 @@ export async function POST(request: NextRequest) {
               items: orderItems,
               subtotal,
               discount,
-              coupon: body.coupon || '',
+              coupon: couponCode,
               shippingCost,
               total,
               shippingAddress: body.shippingAddress || undefined,

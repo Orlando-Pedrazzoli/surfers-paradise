@@ -1,14 +1,12 @@
 'use client';
-
 import { MessageCircle } from 'lucide-react';
+import { company } from '@/lib/config/company';
 
 export default function WhatsAppButton() {
-  const whatsappNumber = '5511999999999';
   const message = encodeURIComponent(
     'Olá! Gostaria de saber mais sobre os produtos da Surfers Paradise.',
   );
-  const url = 'https://wa.me/' + whatsappNumber + '?text=' + message;
-
+  const url = `https://wa.me/${company.whatsapp}?text=${message}`;
   return (
     <a
       href={url}

@@ -60,6 +60,15 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
+                <button
+                  type='button'
+                  data-cookie-preferences
+                  className='text-sm text-left hover:text-[#FF6600] transition-colors'
+                >
+                  Preferências de Cookies
+                </button>
+              </li>
+              <li>
                 <Link
                   href='/contato'
                   className='text-sm hover:text-[#FF6600] transition-colors'
