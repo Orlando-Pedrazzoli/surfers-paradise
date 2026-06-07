@@ -3,7 +3,7 @@ import { Geist, Geist_Mono, Original_Surfer } from 'next/font/google';
 import './globals.css';
 import AppProvider from '@/lib/context/AppProvider';
 import CartSidebar from '@/components/layout/CartSidebar';
-import NewsletterModalTrigger from '@/components/marketing/NewsletterModalTrigger';
+// import NewsletterModalTrigger from '@/components/marketing/NewsletterModalTrigger'; // desativado temporariamente a pedido do cliente
 import CookieConsent from '@/components/shared/CookieConsent';
 
 const geistSans = Geist({
@@ -52,7 +52,8 @@ export default function RootLayout({
         <AppProvider>
           {children}
           <CartSidebar />
-          <NewsletterModalTrigger />
+          {/* <NewsletterModalTrigger /> */}
+          {/* desativado temporariamente a pedido do cliente */}
           <CookieConsent />
         </AppProvider>
       </body>

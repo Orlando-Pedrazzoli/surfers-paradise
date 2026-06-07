@@ -36,15 +36,19 @@ const orderSchema = new Schema<IOrder>(
         image: { type: String, default: '' },
         variant: { type: String, default: '' },
         quantity: { type: Number, required: true, min: 1 },
-        price: { type: Number, required: true, min: 0 },
+        price: { type: Number, required: true, min: 0 }, // preço CHEIO unitário
         costPrice: { type: Number, default: 0 },
+        // Desconto de linha (balcão)
+        discountPercent: { type: Number, default: 0, min: 0, max: 100 },
+        discountValue: { type: Number, default: 0, min: 0 },
       },
     ],
 
     // Totais
     subtotal: { type: Number, required: true, min: 0 },
     shippingCost: { type: Number, default: 0, min: 0 },
-    discount: { type: Number, default: 0, min: 0 },
+    discount: { type: Number, default: 0, min: 0 }, // total agregado (cupom + manual)
+    manualDiscount: { type: Number, default: 0, min: 0 }, // só a parte manual de balcão
     coupon: { type: String, default: '' },
     total: { type: Number, required: true, min: 0 },
 

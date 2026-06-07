@@ -11,6 +11,7 @@ const SHORTCUTS = [
   { keys: ['F2'], description: 'Focar campo de busca' },
   { keys: ['F3'], description: 'Limpar carrinho' },
   { keys: ['F4'], description: 'Finalizar venda' },
+  { keys: ['F6'], description: 'Foco no desconto geral do carrinho' },
   { keys: ['F7'], description: 'Cadastro rápido de produto' },
   { keys: ['F9'], description: 'Remover último item do carrinho' },
   { keys: ['+', '='], description: 'Aumentar quantidade do último item' },
@@ -43,7 +44,6 @@ export default function PosShortcutsHelp({ onClose }: PosShortcutsHelpProps) {
             <X size={20} />
           </button>
         </div>
-
         <div className='p-4'>
           <div className='space-y-2'>
             {SHORTCUTS.map((s, i) => (
@@ -65,7 +65,6 @@ export default function PosShortcutsHelp({ onClose }: PosShortcutsHelpProps) {
               </div>
             ))}
           </div>
-
           <div className='mt-4 pt-3 border-t text-xs text-gray-400 text-center'>
             Pressiona <kbd className='bg-gray-100 px-1 rounded'>?</kbd> a
             qualquer momento para ver esta ajuda

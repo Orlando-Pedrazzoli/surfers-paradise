@@ -17,6 +17,8 @@ import {
   Check,
   Zap,
   Keyboard,
+  Tag,
+  LayoutGrid,
 } from 'lucide-react';
 import PosPaymentModal from '@/components/admin/PosPaymentModal';
 import QuickProductModal from '@/components/admin/QuickProductModal';
@@ -41,7 +43,20 @@ interface CartItem {
   quantity: number;
   stock: number;
   image: string;
+  discountPercent: number; // desconto da linha (0–100)
 }
+
+interface PosCategory {
+  _id: string;
+  name: string;
+  slug: string;
+  parent: string | null;
+  level: number;
+}
+
+type Selected = { id: string; type: 'category' | 'subcategory' } | null;
+
+const QUICK_DISCOUNTS = [5, 10, 15];
 
 function formatPrice(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
@@ -57,15 +72,31 @@ function formatClock(): string {
   });
 }
 
+function clampPct(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.min(Math.round(v), 100);
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
 export default function PosPage() {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const cartDiscountRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [products, setProducts] = useState<PosProduct[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const [categories, setCategories] = useState<PosCategory[]>([]);
+  const [selected, setSelected] = useState<Selected>(null);
+
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartDiscountPercent, setCartDiscountPercent] = useState(0);
+
   const [showPayment, setShowPayment] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -87,6 +118,19 @@ export default function PosPage() {
   useEffect(() => {
     const t = setInterval(() => setClock(formatClock()), 30000);
     return () => clearInterval(t);
+  }, []);
+
+  // Carregar categorias para a sidebar
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/catalog');
+        const data = await res.json();
+        if (data.success) setCategories(data.categories || []);
+      } catch {
+        // silencioso — sidebar apenas não popula
+      }
+    })();
   }, []);
 
   // Focar busca + atalhos
@@ -118,6 +162,7 @@ export default function PosPage() {
         e.preventDefault();
         if (cart.length > 0 && confirm('Limpar carrinho?')) {
           setCart([]);
+          setCartDiscountPercent(0);
         }
         return;
       }
@@ -126,6 +171,14 @@ export default function PosPage() {
       if (e.key === 'F4') {
         e.preventDefault();
         if (cart.length > 0) setShowPayment(true);
+        return;
+      }
+
+      // F6 — foco no desconto geral
+      if (e.key === 'F6') {
+        e.preventDefault();
+        cartDiscountRef.current?.focus();
+        cartDiscountRef.current?.select();
         return;
       }
 
@@ -203,7 +256,7 @@ export default function PosPage() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [cart, showPayment, showQuickAdd, showHelp, successMessage]);
 
-  // Carregar produtos
+  // Carregar produtos (busca + categoria)
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -212,6 +265,9 @@ export default function PosPage() {
       params.set('limit', '60');
       params.set('sort', '-soldCount');
       if (debouncedSearch) params.set('search', debouncedSearch);
+      if (selected?.type === 'category') params.set('category', selected.id);
+      if (selected?.type === 'subcategory')
+        params.set('subcategory', selected.id);
 
       const res = await fetch(`/api/products?${params}`);
       const data = await res.json();
@@ -221,11 +277,15 @@ export default function PosPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, selected]);
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  // Categorias derivadas
+  const rootCategories = categories.filter(c => c.level === 0);
+  const childrenOf = (id: string) => categories.filter(c => c.parent === id);
 
   // CART OPERATIONS
   const addToCart = (product: PosProduct) => {
@@ -257,6 +317,7 @@ export default function PosPage() {
           quantity: 1,
           stock: product.stock,
           image: product.thumbnail || product.images[0] || '',
+          discountPercent: 0,
         },
       ];
     });
@@ -282,17 +343,38 @@ export default function PosPage() {
     });
   };
 
+  const setItemDiscount = (productId: string, pct: number) => {
+    setCart(prev =>
+      prev.map(i =>
+        i.productId === productId
+          ? { ...i, discountPercent: clampPct(pct) }
+          : i,
+      ),
+    );
+  };
+
   const removeFromCart = (productId: string) => {
     setCart(prev => prev.filter(i => i.productId !== productId));
   };
 
   const clearCart = () => {
     if (cart.length === 0) return;
-    if (confirm('Limpar carrinho?')) setCart([]);
+    if (confirm('Limpar carrinho?')) {
+      setCart([]);
+      setCartDiscountPercent(0);
+    }
   };
 
+  // TOTAIS (espelham o cálculo do servidor: linha primeiro, depois carrinho)
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  const total = subtotal;
+  const lineDiscounts = cart.reduce(
+    (s, i) => s + (i.price * i.quantity * i.discountPercent) / 100,
+    0,
+  );
+  const afterLine = subtotal - lineDiscounts;
+  const cartDiscountValue = (afterLine * cartDiscountPercent) / 100;
+  const totalDiscount = round2(lineDiscounts + cartDiscountValue);
+  const total = round2(subtotal - totalDiscount);
   const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
 
   // FINALIZE
@@ -310,7 +392,9 @@ export default function PosPage() {
         items: cart.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
+          discountPercent: i.discountPercent || undefined,
         })),
+        cartDiscountPercent: cartDiscountPercent || undefined,
         customerSnapshot: {
           name: data.customerName || 'Consumidor',
           cpf: data.customerCpf || '',
@@ -337,6 +421,7 @@ export default function PosPage() {
           change: result.order.payment.cashChange || 0,
         });
         setCart([]);
+        setCartDiscountPercent(0);
         fetchProducts();
       } else {
         toast.error(result.error || 'Erro ao processar venda');
@@ -385,7 +470,75 @@ export default function PosPage() {
 
       {/* MAIN */}
       <div className='flex-1 flex overflow-hidden'>
-        {/* COLUNA ESQUERDA — Produtos */}
+        {/* SIDEBAR — Categorias */}
+        <aside className='w-[180px] bg-white border-r flex-shrink-0 overflow-y-auto'>
+          <div className='px-3 py-3 border-b'>
+            <p className='text-[11px] font-bold text-gray-400 uppercase tracking-wide'>
+              Categorias
+            </p>
+          </div>
+          <nav className='p-2 space-y-1'>
+            <button
+              onClick={() => setSelected(null)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                selected === null
+                  ? 'bg-[#FF6600] text-white font-medium'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <LayoutGrid size={15} />
+              Todos
+            </button>
+
+            {rootCategories.map(cat => {
+              const children = childrenOf(cat._id);
+              const catActive =
+                selected?.type === 'category' && selected.id === cat._id;
+              return (
+                <div key={cat._id}>
+                  <button
+                    onClick={() =>
+                      setSelected({ id: cat._id, type: 'category' })
+                    }
+                    className={`w-full px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                      catActive
+                        ? 'bg-[#FF6600] text-white font-medium'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                  {children.length > 0 && (
+                    <div className='mt-0.5 ml-2 space-y-0.5'>
+                      {children.map(sub => {
+                        const subActive =
+                          selected?.type === 'subcategory' &&
+                          selected.id === sub._id;
+                        return (
+                          <button
+                            key={sub._id}
+                            onClick={() =>
+                              setSelected({ id: sub._id, type: 'subcategory' })
+                            }
+                            className={`w-full px-3 py-1.5 rounded-md text-xs text-left transition-colors ${
+                              subActive
+                                ? 'bg-orange-100 text-[#FF6600] font-medium'
+                                : 'text-gray-500 hover:bg-gray-100'
+                            }`}
+                          >
+                            › {sub.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* CENTRO — Busca + Produtos */}
         <div className='flex-1 flex flex-col overflow-hidden'>
           {/* Busca + Cadastro Rápido */}
           <div className='bg-white border-b px-4 py-3 flex-shrink-0 flex gap-2'>
@@ -427,7 +580,7 @@ export default function PosPage() {
             </button>
           </div>
 
-          {/* Grid de produtos */}
+          {/* Grid de produtos — 4 colunas */}
           <div className='flex-1 overflow-y-auto p-4'>
             {loading ? (
               <div className='flex items-center justify-center h-full'>
@@ -437,17 +590,20 @@ export default function PosPage() {
               <div className='flex flex-col items-center justify-center h-full text-gray-400'>
                 <Package size={48} className='mb-3 opacity-50' />
                 <p>Nenhum produto encontrado</p>
-                {search && (
+                {(search || selected) && (
                   <button
-                    onClick={() => setSearch('')}
+                    onClick={() => {
+                      setSearch('');
+                      setSelected(null);
+                    }}
                     className='mt-3 text-[#FF6600] hover:underline text-sm'
                   >
-                    Limpar busca
+                    Limpar filtros
                   </button>
                 )}
               </div>
             ) : (
-              <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3'>
+              <div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3'>
                 {products.map(p => {
                   const outOfStock = p.stock <= 0;
                   return (
@@ -504,7 +660,7 @@ export default function PosPage() {
           </div>
         </div>
 
-        {/* COLUNA DIREITA — Carrinho */}
+        {/* CARRINHO */}
         <aside className='w-[360px] bg-white border-l flex flex-col flex-shrink-0'>
           <div className='px-4 py-3 border-b flex items-center justify-between'>
             <div className='flex items-center gap-2'>
@@ -537,66 +693,166 @@ export default function PosPage() {
               </div>
             ) : (
               <div className='divide-y'>
-                {cart.map(item => (
-                  <div key={item.productId} className='p-3 flex gap-3'>
-                    {item.image ? (
-                      <Image
-                        src={item.image}
-                        alt={item.name}
-                        width={48}
-                        height={48}
-                        className='w-12 h-12 rounded object-cover flex-shrink-0'
-                      />
-                    ) : (
-                      <div className='w-12 h-12 bg-gray-100 rounded flex items-center justify-center flex-shrink-0'>
-                        <Package size={16} className='text-gray-400' />
+                {cart.map(item => {
+                  const lineGross = item.price * item.quantity;
+                  const lineNet = round2(
+                    lineGross * (1 - item.discountPercent / 100),
+                  );
+                  return (
+                    <div key={item.productId} className='p-3'>
+                      <div className='flex gap-3'>
+                        {item.image ? (
+                          <Image
+                            src={item.image}
+                            alt={item.name}
+                            width={48}
+                            height={48}
+                            className='w-12 h-12 rounded object-cover flex-shrink-0'
+                          />
+                        ) : (
+                          <div className='w-12 h-12 bg-gray-100 rounded flex items-center justify-center flex-shrink-0'>
+                            <Package size={16} className='text-gray-400' />
+                          </div>
+                        )}
+                        <div className='flex-1 min-w-0'>
+                          <p className='text-xs font-medium text-gray-900 line-clamp-2 leading-tight'>
+                            {item.name}
+                          </p>
+                          <p className='text-[10px] text-gray-400 font-mono'>
+                            {formatPrice(item.price)}
+                          </p>
+                          <div className='flex items-center gap-1.5 mt-1.5'>
+                            <button
+                              onClick={() => updateQty(item.productId, -1)}
+                              className='w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded transition-colors'
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <span className='text-sm font-bold w-6 text-center'>
+                              {item.quantity}
+                            </span>
+                            <button
+                              onClick={() => updateQty(item.productId, 1)}
+                              className='w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded transition-colors'
+                            >
+                              <Plus size={12} />
+                            </button>
+                            <button
+                              onClick={() => removeFromCart(item.productId)}
+                              className='ml-auto text-red-500 hover:text-red-700 transition-colors'
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className='text-right whitespace-nowrap'>
+                          {item.discountPercent > 0 && (
+                            <p className='text-[10px] text-gray-400 line-through'>
+                              {formatPrice(lineGross)}
+                            </p>
+                          )}
+                          <p className='text-sm font-bold text-gray-900'>
+                            {formatPrice(lineNet)}
+                          </p>
+                        </div>
                       </div>
-                    )}
-                    <div className='flex-1 min-w-0'>
-                      <p className='text-xs font-medium text-gray-900 line-clamp-2 leading-tight'>
-                        {item.name}
-                      </p>
-                      <p className='text-[10px] text-gray-400 font-mono'>
-                        {formatPrice(item.price)}
-                      </p>
-                      <div className='flex items-center gap-1.5 mt-1.5'>
-                        <button
-                          onClick={() => updateQty(item.productId, -1)}
-                          className='w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded transition-colors'
-                        >
-                          <Minus size={12} />
-                        </button>
-                        <span className='text-sm font-bold w-6 text-center'>
-                          {item.quantity}
-                        </span>
-                        <button
-                          onClick={() => updateQty(item.productId, 1)}
-                          className='w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded transition-colors'
-                        >
-                          <Plus size={12} />
-                        </button>
-                        <button
-                          onClick={() => removeFromCart(item.productId)}
-                          className='ml-auto text-red-500 hover:text-red-700 transition-colors'
-                        >
-                          <Trash2 size={14} />
-                        </button>
+
+                      {/* Desconto da linha */}
+                      <div className='flex items-center gap-1 mt-2 pl-[60px]'>
+                        <Tag size={11} className='text-gray-400' />
+                        {QUICK_DISCOUNTS.map(p => (
+                          <button
+                            key={p}
+                            onClick={() => setItemDiscount(item.productId, p)}
+                            className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                              item.discountPercent === p
+                                ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                                : 'border-gray-200 text-gray-500 hover:border-[#FF6600]'
+                            }`}
+                          >
+                            {p}%
+                          </button>
+                        ))}
+                        <input
+                          type='number'
+                          min={0}
+                          max={100}
+                          value={item.discountPercent || ''}
+                          onChange={e =>
+                            setItemDiscount(
+                              item.productId,
+                              parseInt(e.target.value) || 0,
+                            )
+                          }
+                          placeholder='%'
+                          className='w-12 text-[10px] px-1 py-0.5 border border-gray-200 rounded text-center focus:outline-none focus:border-[#FF6600]'
+                        />
+                        {item.discountPercent > 0 && (
+                          <button
+                            onClick={() => setItemDiscount(item.productId, 0)}
+                            className='text-gray-400 hover:text-red-500'
+                            title='Remover desconto'
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <p className='text-sm font-bold text-gray-900 whitespace-nowrap'>
-                      {formatPrice(item.price * item.quantity)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
 
           <div className='border-t bg-gray-50 p-4 space-y-3 flex-shrink-0'>
+            {/* Desconto geral do carrinho */}
+            {cart.length > 0 && (
+              <div className='flex items-center gap-1.5 bg-white rounded-md border border-gray-200 px-2 py-1.5'>
+                <Tag size={13} className='text-[#FF6600]' />
+                <span className='text-xs text-gray-600'>Desc. geral</span>
+                {QUICK_DISCOUNTS.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setCartDiscountPercent(p)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                      cartDiscountPercent === p
+                        ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                        : 'border-gray-200 text-gray-500 hover:border-[#FF6600]'
+                    }`}
+                  >
+                    {p}%
+                  </button>
+                ))}
+                <input
+                  ref={cartDiscountRef}
+                  type='number'
+                  min={0}
+                  max={100}
+                  value={cartDiscountPercent || ''}
+                  onChange={e =>
+                    setCartDiscountPercent(
+                      clampPct(parseInt(e.target.value) || 0),
+                    )
+                  }
+                  placeholder='%'
+                  className='w-12 text-[10px] px-1 py-0.5 border border-gray-200 rounded text-center focus:outline-none focus:border-[#FF6600] ml-auto'
+                />
+                <kbd className='text-[9px] text-gray-400 bg-gray-100 px-1 py-0.5 rounded'>
+                  F6
+                </kbd>
+              </div>
+            )}
+
             <div className='flex justify-between text-sm text-gray-600'>
               <span>Subtotal</span>
               <span>{formatPrice(subtotal)}</span>
             </div>
+            {totalDiscount > 0 && (
+              <div className='flex justify-between text-sm text-green-700 font-medium'>
+                <span>Desconto</span>
+                <span>-{formatPrice(totalDiscount)}</span>
+              </div>
+            )}
             <div className='flex justify-between items-end'>
               <span className='text-sm font-medium text-gray-700'>Total</span>
               <span className='text-2xl font-black text-[#FF6600]'>
@@ -621,6 +877,8 @@ export default function PosPage() {
       {showPayment && (
         <PosPaymentModal
           total={total}
+          subtotal={subtotal}
+          discount={totalDiscount}
           saving={saving}
           onClose={() => !saving && setShowPayment(false)}
           onConfirm={handleConfirmPayment}

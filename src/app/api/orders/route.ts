@@ -13,6 +13,7 @@ void _deps;
 interface OrderItemInput {
   productId: string;
   quantity: number;
+  discountPercent?: number; // % desconto desta linha (balcão) — revalidado no servidor
 }
 
 interface CreateOrderBody {
@@ -30,11 +31,22 @@ interface CreateOrderBody {
     installments?: number;
     cashReceived?: number;
   };
-  discount?: number;
+  discount?: number; // ignorado de propósito — servidor recalcula
+  cartDiscountPercent?: number; // % desconto sobre o carrinho inteiro (balcão)
   coupon?: string;
   shippingCost?: number;
   shippingAddress?: Record<string, string>;
   notes?: string;
+}
+
+// ─── Helpers de desconto ───
+function clampPercent(v: unknown): number {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? 0));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(n, 100);
+}
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -105,7 +117,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// POST — Criar pedido (com decremento atômico de estoque + cupom)
+// POST — Criar pedido (com decremento atômico de estoque + cupom + desconto balcão)
 // ═══════════════════════════════════════════════════════════════
 export async function POST(request: NextRequest) {
   try {
@@ -151,7 +163,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validar estoque disponível
+    // Validar estoque disponível + montar itens (com desconto de linha)
     const orderItems: Array<{
       product: mongoose.Types.ObjectId;
       sku: string;
@@ -161,8 +173,11 @@ export async function POST(request: NextRequest) {
       quantity: number;
       price: number;
       costPrice: number;
+      discountPercent: number;
+      discountValue: number;
     }> = [];
     let subtotal = 0;
+    let sumLineDiscounts = 0;
 
     for (const item of body.items) {
       const product = products.find(p => p._id.toString() === item.productId);
@@ -178,8 +193,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const itemTotal = product.price * item.quantity;
-      subtotal += itemTotal;
+      const lineGross = product.price * item.quantity;
+      subtotal += lineGross;
+
+      // Desconto de linha (só faz sentido no balcão; online não envia)
+      const linePct = clampPercent(item.discountPercent);
+      const lineDiscountValue = round2((lineGross * linePct) / 100);
+      sumLineDiscounts += lineDiscountValue;
 
       orderItems.push({
         product: product._id,
@@ -188,13 +208,15 @@ export async function POST(request: NextRequest) {
         slug: product.slug,
         image: product.thumbnail || product.images?.[0] || '',
         quantity: item.quantity,
-        price: product.price,
+        price: product.price, // preço CHEIO — o desconto fica separado
         costPrice: product.costPrice || 0,
+        discountPercent: linePct,
+        discountValue: lineDiscountValue,
       });
     }
 
     // ─── Cupom: revalidação no servidor (NÃO confia no discount do client) ───
-    let discount = 0;
+    let discount = 0; // começa com o desconto do cupom
     let couponCode = '';
     let couponDoc: Awaited<ReturnType<typeof Coupon.findOne>> = null;
 
@@ -236,12 +258,25 @@ export async function POST(request: NextRequest) {
         discount = Math.min(discount, couponDoc.maxDiscount);
       }
       discount = Math.min(discount, subtotal);
-      discount = Math.round(discount * 100) / 100;
+      discount = round2(discount);
       couponCode = couponDoc.code;
     }
 
+    // ─── Desconto manual de balcão (linhas + carrinho), revalidado no servidor ───
+    // Ordem (padrão Shopify POS): desconto de linha primeiro, depois % no carrinho.
+    const afterLineDiscounts = subtotal - sumLineDiscounts;
+    const cartPct = clampPercent(body.cartDiscountPercent);
+    const cartDiscountValue = round2((afterLineDiscounts * cartPct) / 100);
+
+    let manualDiscount = round2(sumLineDiscounts + cartDiscountValue);
+    manualDiscount = Math.min(manualDiscount, subtotal);
+
+    // Desconto agregado = cupom + manual, com teto no subtotal (nunca total negativo)
+    discount = round2(discount + manualDiscount);
+    discount = Math.min(discount, subtotal);
+
     const shippingCost = body.shippingCost || 0;
-    const total = subtotal - discount + shippingCost;
+    const total = round2(subtotal - discount + shippingCost);
 
     // Validar troco (POS dinheiro)
     let cashChange = 0;
@@ -256,7 +291,7 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      cashChange = cashReceived - total;
+      cashChange = round2(cashReceived - total);
     }
 
     // Pagamento — POS: pago imediatamente. Online: pendente
@@ -337,6 +372,7 @@ export async function POST(request: NextRequest) {
               items: orderItems,
               subtotal,
               discount,
+              manualDiscount,
               coupon: couponCode,
               shippingCost,
               total,

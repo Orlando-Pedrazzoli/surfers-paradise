@@ -28,6 +28,8 @@ interface OrderCupom {
     name: string;
     quantity: number;
     price: number;
+    discountPercent?: number;
+    discountValue?: number;
   }[];
   subtotal: number;
   shippingCost: number;
@@ -280,19 +282,32 @@ function Cupom80mm({ order }: { order: OrderCupom }) {
           <span>ITEM</span>
           <span>VALOR</span>
         </div>
-        {order.items.map((item, idx) => (
-          <div key={idx} className='mb-1.5'>
-            <p className='font-medium leading-tight'>{item.name}</p>
-            <div className='flex justify-between text-[10px]'>
-              <span>
-                {item.quantity} x {formatPrice(item.price)}
-              </span>
-              <span className='font-bold'>
-                {formatPrice(item.price * item.quantity)}
-              </span>
+        {order.items.map((item, idx) => {
+          const lineGross = item.price * item.quantity;
+          const hasDiscount = (item.discountPercent ?? 0) > 0;
+          const lineNet = lineGross - (item.discountValue ?? 0);
+          return (
+            <div key={idx} className='mb-1.5'>
+              <p className='font-medium leading-tight'>{item.name}</p>
+              <div className='flex justify-between text-[10px]'>
+                <span>
+                  {item.quantity} x {formatPrice(item.price)}
+                  {hasDiscount ? ` (-${item.discountPercent}%)` : ''}
+                </span>
+                {hasDiscount ? (
+                  <span className='font-bold'>
+                    <span className='line-through font-normal mr-1'>
+                      {formatPrice(lineGross)}
+                    </span>
+                    {formatPrice(lineNet)}
+                  </span>
+                ) : (
+                  <span className='font-bold'>{formatPrice(lineGross)}</span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* TOTAIS */}
@@ -521,21 +536,42 @@ function CupomA4({ order }: { order: OrderCupom }) {
           </tr>
         </thead>
         <tbody>
-          {order.items.map((item, idx) => (
-            <tr key={idx} className='border-b border-gray-100'>
-              <td className='py-2 px-2 font-mono text-xs text-gray-500'>
-                {item.sku}
-              </td>
-              <td className='py-2 px-2 text-gray-900'>{item.name}</td>
-              <td className='py-2 px-2 text-center'>{item.quantity}</td>
-              <td className='py-2 px-2 text-right'>
-                {formatPrice(item.price)}
-              </td>
-              <td className='py-2 px-2 text-right font-medium'>
-                {formatPrice(item.price * item.quantity)}
-              </td>
-            </tr>
-          ))}
+          {order.items.map((item, idx) => {
+            const lineGross = item.price * item.quantity;
+            const hasDiscount = (item.discountPercent ?? 0) > 0;
+            const lineNet = lineGross - (item.discountValue ?? 0);
+            return (
+              <tr key={idx} className='border-b border-gray-100'>
+                <td className='py-2 px-2 font-mono text-xs text-gray-500'>
+                  {item.sku}
+                </td>
+                <td className='py-2 px-2 text-gray-900'>
+                  {item.name}
+                  {hasDiscount && (
+                    <span className='block text-xs text-green-700'>
+                      desconto {item.discountPercent}%
+                    </span>
+                  )}
+                </td>
+                <td className='py-2 px-2 text-center'>{item.quantity}</td>
+                <td className='py-2 px-2 text-right'>
+                  {formatPrice(item.price)}
+                </td>
+                <td className='py-2 px-2 text-right font-medium'>
+                  {hasDiscount ? (
+                    <>
+                      <span className='line-through text-gray-400 text-xs mr-1'>
+                        {formatPrice(lineGross)}
+                      </span>
+                      {formatPrice(lineNet)}
+                    </>
+                  ) : (
+                    formatPrice(lineGross)
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 

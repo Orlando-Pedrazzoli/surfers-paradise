@@ -29,8 +29,11 @@ export interface IOrderItem {
   image: string;
   variant?: string;
   quantity: number;
-  price: number; // Preço unitário no momento da venda
+  price: number; // Preço unitário CHEIO no momento da venda (antes do desconto de linha)
   costPrice?: number; // Custo no momento da venda (para relatório de margem)
+  // ─── Desconto de linha (balcão) ───
+  discountPercent?: number; // % aplicado nesta linha (0–100). 0 = sem desconto.
+  discountValue?: number; // Valor do desconto da linha em R$ (price × quantity × %). Calculado no servidor.
 }
 
 // Endereço opcional (obrigatório só para canal online)
@@ -92,9 +95,10 @@ export interface IOrder {
   customerSnapshot?: ICustomerSnapshot; // Sempre preenchido (até "Consumidor")
   cashier?: Types.ObjectId | null; // Quem operou a venda (POS) — futuro
   items: IOrderItem[];
-  subtotal: number;
+  subtotal: number; // Soma dos itens a preço CHEIO (price × quantity)
   shippingCost: number;
-  discount: number;
+  discount: number; // Desconto TOTAL agregado (cupom + manual de balcão)
+  manualDiscount?: number; // Parte do desconto que veio do balcão (linhas + carrinho), separado do cupom — para relatório
   coupon?: string;
   total: number;
   shippingAddress?: IShippingAddress; // Opcional (obrigatório só para canal online)

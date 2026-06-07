@@ -7,6 +7,8 @@ type PaymentMethod = 'cash' | 'pix' | 'debit_card' | 'credit_card';
 
 interface PosPaymentModalProps {
   total: number;
+  subtotal?: number; // opcional — se houver desconto, mostra o detalhamento
+  discount?: number; // desconto total aplicado (linhas + carrinho)
   saving: boolean;
   onClose: () => void;
   onConfirm: (data: {
@@ -27,6 +29,8 @@ function formatPrice(value: number): string {
 
 export default function PosPaymentModal({
   total,
+  subtotal,
+  discount = 0,
   saving,
   onClose,
   onConfirm,
@@ -41,6 +45,8 @@ export default function PosPaymentModal({
   const cashChange = method === 'cash' ? cashReceivedNum - total : 0;
   const canConfirm =
     method !== 'cash' || (cashReceivedNum >= total && cashReceivedNum > 0);
+
+  const hasDiscount = discount > 0 && subtotal !== undefined;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -90,6 +96,26 @@ export default function PosPaymentModal({
             <X size={24} />
           </button>
         </div>
+
+        {/* Detalhamento quando há desconto */}
+        {hasDiscount && (
+          <div className='px-4 pt-3'>
+            <div className='bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm space-y-1'>
+              <div className='flex justify-between text-gray-600'>
+                <span>Subtotal</span>
+                <span>{formatPrice(subtotal!)}</span>
+              </div>
+              <div className='flex justify-between text-green-700 font-medium'>
+                <span>Desconto</span>
+                <span>-{formatPrice(discount)}</span>
+              </div>
+              <div className='flex justify-between font-bold text-gray-900 pt-1 border-t border-orange-200'>
+                <span>Total</span>
+                <span className='text-[#FF6600]'>{formatPrice(total)}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className='p-4 space-y-4'>
           <div>

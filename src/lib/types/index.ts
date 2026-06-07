@@ -8,3 +8,4 @@ export * from './review';
 export * from './shipping';
 export * from './payment';
 export * from './supplier';
+export * from './inboundInvoice';
