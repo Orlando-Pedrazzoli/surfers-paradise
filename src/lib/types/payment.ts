@@ -68,13 +68,11 @@ export interface BoletoResult {
   dueAt?: string;
 }
 
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
-
 export interface CheckoutResponse {
   success: boolean;
   orderId?: string;
   orderNumber?: string;
-  paymentStatus?: PaymentStatus;
+  paymentStatus?: 'pending' | 'paid' | 'failed' | 'refunded';
   total?: number;
   installments?: number;
   pix?: PixResult;
