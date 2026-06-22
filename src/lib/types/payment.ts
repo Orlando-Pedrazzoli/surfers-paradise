@@ -1,48 +1,83 @@
-export interface ICreditCardData {
-  number: string;
-  holderName: string;
-  expMonth: number;
-  expYear: number;
-  cvv: string;
-  installments: number;
-}
+// 📄 src/lib/types/payment.ts
 
-export interface IPagarmeCustomer {
+export interface PaymentCustomer {
   name: string;
   email: string;
-  document: string;
-  phone: string;
+  document: string; // CPF (com ou sem máscara)
+  phone?: string;
 }
 
-export interface IPagarmeAddress {
+export interface PaymentAddress {
+  name?: string;
   street: string;
   number: string;
   complement?: string;
   neighborhood: string;
   city: string;
   state: string;
-  zipCode: string;
-  country: string;
+  cep: string;
+  phone?: string;
+  cpf?: string;
 }
 
-export interface IPaymentRequest {
-  method: 'credit_card' | 'boleto' | 'pix';
-  amount: number;
-  customer: IPagarmeCustomer;
-  billingAddress: IPagarmeAddress;
-  shippingAddress: IPagarmeAddress;
-  creditCard?: ICreditCardData;
-  orderId: string;
+export interface PaymentItem {
+  productId?: string;
+  sku?: string;
+  name: string;
+  slug?: string;
+  image?: string;
+  variant?: string;
+  quantity: number;
+  price: number; // REAIS, unitário cheio
 }
 
-export interface IPaymentResponse {
+export interface CheckoutShipping {
+  method?: string;
+  carrier?: string;
+  estimatedDays?: number;
+  melhorEnvioId?: string;
+}
+
+export interface CheckoutRequestBase {
+  userId?: string;
+  customer: PaymentCustomer;
+  shippingAddress: PaymentAddress;
+  items: PaymentItem[];
+  shippingCost: number;
+  shipping?: CheckoutShipping;
+  coupon?: string;
+  couponDiscount?: number; // REAIS
+}
+
+export interface CardCheckoutRequest extends CheckoutRequestBase {
+  cardToken: string;
+  installments: number;
+}
+
+export interface PixResult {
+  qrCode: string; // copia-e-cola (EMV)
+  qrCodeUrl: string; // imagem do QR
+  expiresAt?: string;
+}
+
+export interface BoletoResult {
+  url: string;
+  pdf?: string;
+  line: string; // linha digitável
+  barcode: string;
+  dueAt?: string;
+}
+
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+
+export interface CheckoutResponse {
   success: boolean;
-  pagarmeOrderId?: string;
-  chargeId?: string;
-  status: string;
-  boletoUrl?: string;
-  boletoBarcode?: string;
-  pixQrCode?: string;
-  pixCopyPaste?: string;
+  orderId?: string;
+  orderNumber?: string;
+  paymentStatus?: PaymentStatus;
+  total?: number;
+  installments?: number;
+  pix?: PixResult;
+  boleto?: BoletoResult;
   error?: string;
 }

@@ -1,5 +1,13 @@
+// 📄 src/app/api/payments/pix/route.ts
 import { NextResponse } from 'next/server';
+import { processCheckout } from '@/lib/services/checkout';
 
-export async function POST() {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 });
+export const runtime = 'nodejs';
+
+export async function POST(request: Request) {
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '';
+  const body = await request.json().catch(() => ({}));
+  const result = await processCheckout('pix', { ...body, ip: body.ip || ip });
+  return NextResponse.json(result.body, { status: result.status });
 }

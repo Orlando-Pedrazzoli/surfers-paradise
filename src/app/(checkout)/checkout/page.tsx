@@ -1,12 +1,118 @@
+// 📄 src/app/(checkout)/checkout/page.tsx
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useCart } from '@/lib/context/CartProvider';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, MapPin, Pencil, Loader2 } from 'lucide-react';
+import PaymentForm from '@/components/checkout/PaymentForm';
+import type { PaymentItem } from '@/lib/types/payment';
+
+const onlyDigits = (s: string) => s.replace(/\D/g, '');
+const inputCls =
+  'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#FF6600]';
+
+const maskCpf = (v: string) =>
+  onlyDigits(v)
+    .slice(0, 11)
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+
+const maskCep = (v: string) =>
+  onlyDigits(v)
+    .slice(0, 8)
+    .replace(/(\d{5})(\d)/, '$1-$2');
+
+const maskPhone = (v: string) => {
+  const d = onlyDigits(v).slice(0, 11);
+  if (d.length <= 10) {
+    return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
+  }
+  return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
+};
+
+const emptyForm = {
+  name: '',
+  email: '',
+  cpf: '',
+  phone: '',
+  cep: '',
+  street: '',
+  number: '',
+  complement: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+};
 
 export default function CheckoutPage() {
-  const { items, subtotal, pixTotal, itemCount } = useCart();
+  const {
+    items,
+    subtotal,
+    pixTotal,
+    total,
+    discount,
+    appliedCoupon,
+    itemCount,
+    clearCart,
+  } = useCart();
+  const [form, setForm] = useState(emptyForm);
+  const [addressDone, setAddressDone] = useState(false);
+  const [error, setError] = useState('');
+  const [cepLoading, setCepLoading] = useState(false);
+
+  const set = (k: keyof typeof emptyForm, v: string) =>
+    setForm(f => ({ ...f, [k]: v }));
+
+  async function lookupCep(cep: string) {
+    const digits = onlyDigits(cep);
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setForm(f => ({
+          ...f,
+          street: data.logradouro || f.street,
+          neighborhood: data.bairro || f.neighborhood,
+          city: data.localidade || f.city,
+          state: data.uf || f.state,
+        }));
+      }
+    } catch {
+      /* silencioso */
+    } finally {
+      setCepLoading(false);
+    }
+  }
+
+  function validateAddress(): string | null {
+    if (form.name.trim().length < 3) return 'Informe seu nome completo.';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email))
+      return 'E-mail inválido.';
+    if (onlyDigits(form.cpf).length !== 11) return 'CPF inválido.';
+    if (onlyDigits(form.phone).length < 10) return 'Telefone inválido.';
+    if (onlyDigits(form.cep).length !== 8) return 'CEP inválido.';
+    if (!form.street.trim()) return 'Informe a rua.';
+    if (!form.number.trim()) return 'Informe o número.';
+    if (!form.neighborhood.trim()) return 'Informe o bairro.';
+    if (!form.city.trim()) return 'Informe a cidade.';
+    if (form.state.trim().length !== 2) return 'Informe o estado (UF).';
+    return null;
+  }
+
+  function handleContinue() {
+    const err = validateAddress();
+    if (err) {
+      setError(err);
+      return;
+    }
+    setError('');
+    setAddressDone(true);
+  }
 
   if (items.length === 0) {
     return (
@@ -28,6 +134,17 @@ export default function CheckoutPage() {
     );
   }
 
+  const paymentItems: PaymentItem[] = items.map(i => ({
+    productId: i.productId,
+    sku: i.sku,
+    name: i.name,
+    slug: i.slug,
+    image: i.image,
+    variant: [i.color, i.size].filter(Boolean).join(' · '),
+    quantity: i.quantity,
+    price: i.price,
+  }));
+
   return (
     <div className='max-w-7xl mx-auto px-4 py-6'>
       <nav className='text-sm text-gray-500 mb-6'>
@@ -47,25 +164,184 @@ export default function CheckoutPage() {
       </h1>
 
       <div className='flex flex-col lg:flex-row gap-8'>
-        {/* Checkout Form */}
         <div className='flex-1 space-y-6'>
-          {/* TODO: Address, Shipping, Payment forms will be implemented with Pagar.me V5 and Melhor Envio */}
+          {/* Endereço / dados */}
           <div className='bg-white rounded-lg shadow-sm p-6'>
-            <h2 className='text-lg font-semibold mb-4'>Endereço de Entrega</h2>
-            <p className='text-sm text-gray-500'>
-              Em breve — integração com Melhor Envio para cálculo de frete
-            </p>
+            <div className='flex items-center justify-between mb-4'>
+              <h2 className='text-lg font-semibold flex items-center gap-2'>
+                <MapPin size={18} /> Dados e Endereço de Entrega
+              </h2>
+              {addressDone && (
+                <button
+                  onClick={() => setAddressDone(false)}
+                  className='flex items-center gap-1 text-sm text-[#FF6600] hover:underline'
+                >
+                  <Pencil size={14} /> Editar
+                </button>
+              )}
+            </div>
+
+            {addressDone ? (
+              <div className='text-sm text-gray-700 space-y-0.5'>
+                <p className='font-medium'>
+                  {form.name} · {form.cpf}
+                </p>
+                <p>
+                  {form.street}, {form.number}
+                  {form.complement && ` - ${form.complement}`}
+                </p>
+                <p>
+                  {form.neighborhood} · {form.city} - {form.state} · {form.cep}
+                </p>
+                <p className='text-gray-500'>
+                  {form.email} · {form.phone}
+                </p>
+              </div>
+            ) : (
+              <div className='space-y-3'>
+                <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+                  <input
+                    className={inputCls}
+                    placeholder='Nome completo'
+                    value={form.name}
+                    onChange={e => set('name', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='E-mail'
+                    value={form.email}
+                    onChange={e => set('email', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='CPF'
+                    value={form.cpf}
+                    onChange={e => set('cpf', maskCpf(e.target.value))}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='Celular (WhatsApp)'
+                    value={form.phone}
+                    onChange={e => set('phone', maskPhone(e.target.value))}
+                  />
+                </div>
+
+                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                  <div className='relative'>
+                    <input
+                      className={inputCls}
+                      placeholder='CEP'
+                      value={form.cep}
+                      onChange={e => set('cep', maskCep(e.target.value))}
+                      onBlur={e => lookupCep(e.target.value)}
+                    />
+                    {cepLoading && (
+                      <Loader2
+                        size={16}
+                        className='absolute right-3 top-2.5 animate-spin text-gray-400'
+                      />
+                    )}
+                  </div>
+                  <input
+                    className={`${inputCls} sm:col-span-2`}
+                    placeholder='Rua / Logradouro'
+                    value={form.street}
+                    onChange={e => set('street', e.target.value)}
+                  />
+                </div>
+
+                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                  <input
+                    className={inputCls}
+                    placeholder='Número'
+                    value={form.number}
+                    onChange={e => set('number', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='Complemento (opcional)'
+                    value={form.complement}
+                    onChange={e => set('complement', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='Bairro'
+                    value={form.neighborhood}
+                    onChange={e => set('neighborhood', e.target.value)}
+                  />
+                </div>
+
+                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                  <input
+                    className={`${inputCls} sm:col-span-2`}
+                    placeholder='Cidade'
+                    value={form.city}
+                    onChange={e => set('city', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder='UF'
+                    maxLength={2}
+                    value={form.state}
+                    onChange={e => set('state', e.target.value.toUpperCase())}
+                  />
+                </div>
+
+                {error && (
+                  <p className='rounded-md bg-red-50 px-3 py-2 text-sm text-red-600'>
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  onClick={handleContinue}
+                  className='w-full rounded-md bg-[#FF6600] px-4 py-3 font-bold text-white transition-colors hover:bg-[#e55b00]'
+                >
+                  Continuar para pagamento
+                </button>
+              </div>
+            )}
           </div>
 
+          {/* Pagamento */}
           <div className='bg-white rounded-lg shadow-sm p-6'>
             <h2 className='text-lg font-semibold mb-4'>Forma de Pagamento</h2>
-            <p className='text-sm text-gray-500'>
-              Em breve — integração com Pagar.me V5 (Cartão, Boleto, PIX)
-            </p>
+            {addressDone ? (
+              <PaymentForm
+                customer={{
+                  name: form.name,
+                  email: form.email,
+                  document: form.cpf,
+                  phone: form.phone,
+                }}
+                shippingAddress={{
+                  name: form.name,
+                  street: form.street,
+                  number: form.number,
+                  complement: form.complement,
+                  neighborhood: form.neighborhood,
+                  city: form.city,
+                  state: form.state,
+                  cep: form.cep,
+                  phone: form.phone,
+                  cpf: form.cpf,
+                }}
+                items={paymentItems}
+                subtotal={subtotal}
+                shippingCost={0}
+                coupon={appliedCoupon?.code}
+                couponDiscount={discount}
+                onOrderCreated={clearCart}
+              />
+            ) : (
+              <p className='text-sm text-gray-500'>
+                Preencha seus dados acima para escolher a forma de pagamento.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Order Summary */}
+        {/* Resumo */}
         <div className='w-full lg:w-[360px] flex-shrink-0'>
           <div className='bg-gray-50 rounded-lg p-6 sticky top-24 space-y-4'>
             <h2 className='text-lg font-bold text-gray-900'>
@@ -78,7 +354,16 @@ export default function CheckoutPage() {
                   key={item.productId}
                   className='flex items-center gap-3 py-3'
                 >
-                  <div className='w-12 h-12 bg-gray-100 rounded flex-shrink-0' />
+                  <div className='w-12 h-12 bg-gray-100 rounded flex-shrink-0 overflow-hidden'>
+                    {item.image && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className='h-full w-full object-cover'
+                      />
+                    )}
+                  </div>
                   <div className='flex-1 min-w-0'>
                     <p className='text-sm text-gray-900 line-clamp-1'>
                       {item.name}
@@ -101,6 +386,16 @@ export default function CheckoutPage() {
                 </span>
                 <span className='font-medium'>{formatCurrency(subtotal)}</span>
               </div>
+              {discount > 0 && (
+                <div className='flex justify-between text-sm'>
+                  <span className='text-gray-600'>
+                    Desconto {appliedCoupon ? `(${appliedCoupon.code})` : ''}
+                  </span>
+                  <span className='text-green-600'>
+                    - {formatCurrency(discount)}
+                  </span>
+                </div>
+              )}
               <div className='flex justify-between text-sm'>
                 <span className='text-gray-600'>Frete</span>
                 <span className='text-gray-400'>A calcular</span>
@@ -111,7 +406,7 @@ export default function CheckoutPage() {
               <div className='flex justify-between items-center'>
                 <span className='text-base font-bold'>Total</span>
                 <span className='text-xl font-black'>
-                  {formatCurrency(subtotal)}
+                  {formatCurrency(total)}
                 </span>
               </div>
               <div className='flex justify-between items-center mt-1'>
