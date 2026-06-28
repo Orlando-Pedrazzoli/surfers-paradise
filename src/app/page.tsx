@@ -4,12 +4,14 @@ import Footer from '@/components/layout/Footer';
 import WhatsAppButton from '@/components/layout/WhatsAppButton';
 import HeroBanner from '@/components/home/HeroBanner';
 import BrandCarousel from '@/components/home/BrandCarousel';
+import ShopByCategory from '@/components/home/ShopByCategory';
 import FeaturedProducts from '@/components/home/FeaturedProducts';
 import FeaturedWetsuits from '@/components/home/FeaturedWetsuits';
 import ImageBanner from '@/components/home/ImageBanner';
 import PromoBanners from '@/components/home/PromoBanners';
 import CategoryBanners from '@/components/home/CategoryBanners';
 import ReviewsCarousel from '@/components/home/ReviewsCarousel';
+
 export default function Home() {
   return (
     <>
@@ -18,6 +20,7 @@ export default function Home() {
       <main>
         <HeroBanner />
         <BrandCarousel />
+        <ShopByCategory />
         <FeaturedProducts
           title='Novidades'
           fetchUrl='/api/products?limit=8&sort=-createdAt&isActive=true&isNewArrival=true'
@@ -28,7 +31,6 @@ export default function Home() {
         />
         <ImageBanner alt='Rip Curl — Surfers Paradise' />
         <FeaturedWetsuits title='Wetsuits' />
-
         <PromoBanners />
         <FeaturedProducts
           title='Quilhas'

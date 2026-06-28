@@ -87,6 +87,7 @@ export default function Navbar() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogData | null>(null);
   const [expandedMobile, setExpandedMobile] = useState<string | null>(null);
+  const [scrolled, setScrolled] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isLoggedIn = !!session?.user;
@@ -103,6 +104,20 @@ export default function Navbar() {
       }
     };
     fetchCatalog();
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════
+  // STICKY NAVBAR: elevação (sombra) só depois de iniciar o scroll.
+  // A announcement bar fica no fluxo normal e rola embora; o header
+  // tem position: sticky e "cola" no topo. Aqui só controlamos o
+  // estado visual de elevação. Listener passivo → nunca bloqueia o
+  // scroll (boa prática de performance, evita jank).
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll(); // estado inicial correto (ex.: refresh com a página já rolada)
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -142,7 +157,11 @@ export default function Navbar() {
 
   return (
     <>
-      <header className='bg-white border-b border-gray-200 sticky top-0 z-50'>
+      <header
+        className={`bg-white border-b border-gray-200 sticky top-0 z-50 transition-shadow duration-300 ${
+          scrolled ? 'shadow-lg' : 'shadow-none'
+        }`}
+      >
         <div className='max-w-7xl mx-auto px-4'>
           <div className='flex items-center justify-between h-16 md:h-20 gap-4'>
             <button
@@ -472,7 +491,6 @@ function MegaMenuContent({
   //   3. > 5 items, com promo     → 2 colunas estreitas + promo (6/6)
   //   4. > 5 items, sem promo     → 2 colunas (sem promo)
 
-  const itemsPerColumn = 5;
   const needsTwoColumns = subcategories.length > 5;
   const columns: SubCategory[][] = [];
 

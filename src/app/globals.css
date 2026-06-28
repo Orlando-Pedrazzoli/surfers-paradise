@@ -17,8 +17,17 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
-  overflow-x: hidden;
+  /* `clip` corta o overflow horizontal SEM criar contexto de scroll,
+     ao contrário de `hidden`, que convertia o overflow-y para auto e
+     quebrava o position: sticky da navbar. */
+  overflow-x: clip;
   max-width: 100vw;
+}
+
+html {
+  /* Âncoras (#secção) param abaixo da navbar fixa em vez de ficarem
+     escondidas atrás dela ao navegar por links internos. */
+  scroll-padding-top: 8rem;
 }
 
 /* Hide scrollbar utility (cross-browser) */
