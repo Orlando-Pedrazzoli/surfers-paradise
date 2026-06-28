@@ -22,6 +22,7 @@ interface Category {
   name: string;
   slug: string;
   parent?: string | null;
+  image?: string;
 }
 
 interface CatalogData {
@@ -34,38 +35,17 @@ interface ShopByCategoryProps {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// IMAGENS DOS CÍRCULOS — via pasta public/images
+// IMAGENS DOS CÍRCULOS — geridas pelo admin (/admin/categorias)
 // ═══════════════════════════════════════════════════════════════
-// Por convenção, cada card procura:
-//     /public/images/categorias/{slug}.jpg
-//
-// Basta colocar o ficheiro com o nome do SLUG da subcategoria
-// (ex.: subcategoria "Funboard" com slug "funboard" → guardar
-//  /public/images/categorias/funboard.jpg). Aparece automaticamente,
-// sem editar código.
-//
-// Se algum ficheiro não existir ou falhar a carregar, o círculo cai
-// no fallback (inicial em laranja) — nunca mostra imagem partida.
-//
-// Para usar a raiz /public/images em vez da subpasta, muda
-// CATEGORY_IMAGE_DIR para '/images'.
-const CATEGORY_IMAGE_DIR = '/images/categorias';
+// A imagem de cada categoria vem do campo `image` (URL Cloudinary),
+// enviado pelo CategoryForm e devolvido pelo /api/catalog.
+// Se a categoria não tiver imagem (ou falhar a carregar), o círculo
+// cai no fallback (inicial em laranja) — nunca mostra imagem partida.
 
-// Override opcional: slug → caminho. Usa apenas quando o ficheiro
-// NÃO seguir a convenção {slug}.jpg (ex.: extensão .png ou outro nome).
-const CATEGORY_IMAGES: Record<string, string> = {
-  // 'funboard': '/images/categorias/funboard.png',
-  // 'fcs-ii': '/images/categorias/quilhas-fcs.jpg',
-};
-
-function resolveCategoryImage(slug: string): string {
-  return CATEGORY_IMAGES[slug] ?? `${CATEGORY_IMAGE_DIR}/${slug}.jpg`;
-}
-
-// ───── Card circular individual (com fallback por slug) ─────
+// ───── Card circular individual (com fallback) ─────
 function CategoryCircle({ category }: { category: Category }) {
   const [errored, setErrored] = useState(false);
-  const src = resolveCategoryImage(category.slug);
+  const hasImage = !!category.image && !errored;
 
   return (
     <Link
@@ -73,9 +53,9 @@ function CategoryCircle({ category }: { category: Category }) {
       className='group flex-shrink-0 w-24 sm:w-28 md:w-32 snap-start flex flex-col items-center gap-3'
     >
       <div className='relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-gray-100 ring-1 ring-black/5 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-lg group-hover:ring-[#FF6600]/30'>
-        {!errored ? (
+        {hasImage ? (
           <Image
-            src={src}
+            src={category.image as string}
             alt={category.name}
             fill
             sizes='112px'

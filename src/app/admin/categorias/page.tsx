@@ -1,13 +1,23 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { Plus, Pencil, Trash2, FolderTree } from 'lucide-react';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  FolderTree,
+  Upload,
+  X,
+  ImagePlus,
+} from 'lucide-react';
 
 interface Category {
   _id: string;
   name: string;
   slug: string;
+  image?: string;
   parent?: { _id: string; name: string } | string | null;
   level: number;
   order: number;
@@ -15,15 +25,39 @@ interface Category {
   productCount: number;
 }
 
+// ───── Miniatura usada na listagem ─────
+function CategoryThumb({ image, name }: { image?: string; name: string }) {
+  if (image) {
+    return (
+      <span className='relative inline-block w-8 h-8 rounded-full overflow-hidden border border-gray-200 shrink-0'>
+        <Image
+          src={image}
+          alt={name}
+          fill
+          sizes='32px'
+          className='object-cover'
+        />
+      </span>
+    );
+  }
+  return (
+    <span className='flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 text-[11px] font-bold text-gray-400 shrink-0'>
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
 export default function AdminCategoriasPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
     name: '',
     slug: '',
     description: '',
+    image: '',
     parent: '',
     level: 0,
     order: 0,
@@ -61,6 +95,33 @@ export default function AdminCategoriasPage() {
       slug: editingId ? prev.slug : generateSlug(name),
     }));
   };
+
+  // ───── Upload da imagem (single) — mesmo padrão do ProductForm ─────
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'surfers-paradise/categorias');
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        setForm(prev => ({ ...prev, image: data.url }));
+        toast.success('Imagem enviada!');
+      } else {
+        toast.error(data.error || 'Erro ao enviar imagem');
+      }
+    } catch {
+      toast.error('Erro ao enviar imagem');
+    } finally {
+      setUploading(false);
+      e.target.value = ''; // permite reenviar o mesmo ficheiro
+    }
+  };
+
+  const removeImage = () => setForm(prev => ({ ...prev, image: '' }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +168,7 @@ export default function AdminCategoriasPage() {
       name: cat.name,
       slug: cat.slug,
       description: '',
+      image: cat.image || '',
       parent:
         typeof cat.parent === 'object' && cat.parent
           ? cat.parent._id
@@ -143,6 +205,7 @@ export default function AdminCategoriasPage() {
       name: '',
       slug: '',
       description: '',
+      image: '',
       parent: '',
       level: 0,
       order: 0,
@@ -250,6 +313,63 @@ export default function AdminCategoriasPage() {
               />
             </div>
 
+            {/* ═══ IMAGEM DA CATEGORIA ═══ */}
+            <div className='md:col-span-2'>
+              <label className='block text-sm font-medium text-gray-700 mb-1'>
+                Imagem da categoria
+              </label>
+              <p className='text-xs text-gray-400 mb-2'>
+                Aparece nos círculos da secção &quot;Compre por categoria&quot;
+                na home. Use uma imagem quadrada (mín. 224×224px) para ficar
+                nítida.
+              </p>
+              <div className='flex items-center gap-4'>
+                {form.image ? (
+                  <div className='relative w-24 h-24 rounded-full overflow-hidden border-2 border-[#FF6600] shrink-0'>
+                    <Image
+                      src={form.image}
+                      alt='Pré-visualização'
+                      fill
+                      sizes='96px'
+                      className='object-cover'
+                    />
+                  </div>
+                ) : (
+                  <div className='flex items-center justify-center w-24 h-24 rounded-full bg-gray-100 text-gray-400 shrink-0'>
+                    <ImagePlus size={28} />
+                  </div>
+                )}
+
+                <div className='flex flex-col gap-2'>
+                  <label className='inline-flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#FF6600] hover:bg-orange-50 transition-colors text-sm text-gray-600'>
+                    <Upload size={16} />
+                    {uploading
+                      ? 'Enviando...'
+                      : form.image
+                        ? 'Trocar imagem'
+                        : 'Enviar imagem'}
+                    <input
+                      type='file'
+                      accept='image/*'
+                      onChange={handleImageUpload}
+                      disabled={uploading}
+                      className='hidden'
+                    />
+                  </label>
+                  {form.image && (
+                    <button
+                      type='button'
+                      onClick={removeImage}
+                      className='inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700'
+                    >
+                      <X size={14} />
+                      Remover imagem
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className='flex items-center gap-2 md:col-span-2'>
               <input
                 type='checkbox'
@@ -265,7 +385,8 @@ export default function AdminCategoriasPage() {
             <div className='flex gap-3 md:col-span-2'>
               <button
                 type='submit'
-                className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+                disabled={uploading}
+                className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
               >
                 {editingId ? 'Atualizar' : 'Criar'}
               </button>
@@ -293,7 +414,7 @@ export default function AdminCategoriasPage() {
               <div key={cat._id}>
                 <div className='flex items-center justify-between p-4 hover:bg-gray-50'>
                   <div className='flex items-center gap-3'>
-                    <FolderTree size={18} className='text-gray-400' />
+                    <CategoryThumb image={cat.image} name={cat.name} />
                     <span className='font-medium'>{cat.name}</span>
                     <span className='text-xs text-gray-400'>/{cat.slug}</span>
                     {!cat.isActive && (
@@ -322,6 +443,7 @@ export default function AdminCategoriasPage() {
                   <div key={sub._id}>
                     <div className='flex items-center justify-between p-4 pl-10 hover:bg-gray-50 border-l-2 border-gray-200 ml-4'>
                       <div className='flex items-center gap-3'>
+                        <CategoryThumb image={sub.image} name={sub.name} />
                         <span className='text-sm'>{sub.name}</span>
                         <span className='text-xs text-gray-400'>
                           /{sub.slug}
@@ -349,6 +471,10 @@ export default function AdminCategoriasPage() {
                         className='flex items-center justify-between p-4 pl-16 hover:bg-gray-50 border-l-2 border-gray-100 ml-8'
                       >
                         <div className='flex items-center gap-3'>
+                          <CategoryThumb
+                            image={subsub.image}
+                            name={subsub.name}
+                          />
                           <span className='text-sm text-gray-600'>
                             {subsub.name}
                           </span>

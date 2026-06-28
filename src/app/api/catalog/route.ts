@@ -6,18 +6,16 @@ import Brand from '@/lib/models/Brand';
 export async function GET() {
   try {
     await connectDB();
-
     const [categories, brands] = await Promise.all([
       Category.find({ isActive: true })
         .sort({ order: 1, name: 1 })
-        .select('name slug parent level')
+        .select('name slug parent level image')
         .lean(),
       Brand.find({ isActive: true })
         .sort({ name: 1 })
         .select('name slug logo')
         .lean(),
     ]);
-
     return NextResponse.json({ success: true, categories, brands });
   } catch (error) {
     console.error('Catalog error:', error);
