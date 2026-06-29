@@ -93,7 +93,7 @@ export default function ShopByCategory({
   useEffect(() => {
     const fetchCatalog = async () => {
       try {
-        const res = await fetch('/api/catalog');
+        const res = await fetch('/api/catalog', { cache: 'no-store' });
         const data: CatalogData = await res.json();
         if (data.success && Array.isArray(data.categories)) {
           setCategories(data.categories);
@@ -120,11 +120,11 @@ export default function ShopByCategory({
     return map;
   }, [categories]);
 
-  // Tabs = departamentos (raízes que têm subcategorias)
-  const tabs = useMemo(
-    () => roots.filter(r => (childrenByParent[r._id]?.length ?? 0) > 0),
-    [roots, childrenByParent],
-  );
+  // Tabs = TODOS os departamentos (raízes) ativos.
+  // Mesmo sem subcategorias, o departamento aparece como toggle (e
+  // mostra-se a si próprio como círculo), para que categorias novas
+  // criadas no admin surjam de imediato.
+  const tabs = useMemo(() => roots, [roots]);
 
   // Define o tab inicial assim que os dados chegam
   useEffect(() => {
@@ -138,13 +138,14 @@ export default function ShopByCategory({
     [roots, activeTab],
   );
 
-  // Itens a mostrar: subcategorias do tab ativo.
-  // Fallback: se não houver hierarquia (taxonomia plana), mostra
-  // todas as categorias-raiz e oculta o toggle.
+  // Itens a mostrar: subcategorias do tab ativo. Se o departamento
+  // não tiver subcategorias, mostra-se a si próprio como único círculo
+  // (assim a categoria nova é visível e clicável de imediato).
   const items = useMemo(() => {
-    if (tabs.length === 0) return roots;
-    return childrenByParent[activeTab] ?? [];
-  }, [tabs.length, roots, childrenByParent, activeTab]);
+    const kids = childrenByParent[activeTab] ?? [];
+    if (kids.length > 0) return kids;
+    return activeRoot ? [activeRoot] : [];
+  }, [childrenByParent, activeTab, activeRoot]);
 
   // ───── Estado de scroll: setas + dots ─────
   const updateScrollState = useCallback(() => {
@@ -261,7 +262,7 @@ export default function ShopByCategory({
             <>
               <div
                 ref={scrollRef}
-                className='flex overflow-x-auto scrollbar-none snap-x snap-mandatory pb-2'
+                className='flex overflow-x-auto scrollbar-none snap-x snap-mandatory pt-3 pb-4'
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               >
                 {/* Wrapper com mx-auto: centra quando os itens cabem;
@@ -278,7 +279,7 @@ export default function ShopByCategory({
               <button
                 onClick={() => scroll('left')}
                 aria-label='Anteriores'
-                className={`hidden sm:flex absolute left-1 top-12 md:top-14 -translate-y-1/2 z-10 h-10 w-10 items-center justify-center rounded-full bg-white text-gray-800 shadow-[0_2px_10px_rgba(0,0,0,0.15)] ring-1 ring-black/5 transition hover:bg-gray-50 ${
+                className={`hidden sm:flex absolute left-1 top-14 md:top-16 -translate-y-1/2 z-10 h-10 w-10 items-center justify-center rounded-full bg-white text-gray-800 shadow-[0_2px_10px_rgba(0,0,0,0.15)] ring-1 ring-black/5 transition hover:bg-gray-50 ${
                   canLeft ? 'opacity-100' : 'pointer-events-none opacity-0'
                 }`}
               >
@@ -289,7 +290,7 @@ export default function ShopByCategory({
               <button
                 onClick={() => scroll('right')}
                 aria-label='Próximos'
-                className={`hidden sm:flex absolute right-1 top-12 md:top-14 -translate-y-1/2 z-10 h-10 w-10 items-center justify-center rounded-full bg-white text-gray-800 shadow-[0_2px_10px_rgba(0,0,0,0.15)] ring-1 ring-black/5 transition hover:bg-gray-50 ${
+                className={`hidden sm:flex absolute right-1 top-14 md:top-16 -translate-y-1/2 z-10 h-10 w-10 items-center justify-center rounded-full bg-white text-gray-800 shadow-[0_2px_10px_rgba(0,0,0,0.15)] ring-1 ring-black/5 transition hover:bg-gray-50 ${
                   canRight ? 'opacity-100' : 'pointer-events-none opacity-0'
                 }`}
               >

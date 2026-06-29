@@ -8,7 +8,8 @@ const categorySchema = new Schema<ICategory>(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true },
     description: { type: String, default: '' },
-    image: { type: String, default: '' },
+    image: { type: String, default: '' }, // círculos do ShopByCategory (subcategorias)
+    megaImage: { type: String, default: '' }, // imagem do mega-menu da navbar (categorias-raiz)
     icon: { type: String, default: '' },
     parent: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
     level: { type: Number, default: 0 },
@@ -26,7 +27,6 @@ const categorySchema = new Schema<ICategory>(
 // ═══════════════════════════════════════════════════════════════
 // O campo `slug` já tem índice por causa do `unique: true`.
 // NÃO declarar categorySchema.index({ slug: 1 }) (causaria warning do Mongoose 9).
-
 // Índice composto para listagem hierárquica (filhos de um parent, ordenados)
 categorySchema.index({ parent: 1, order: 1 });
 

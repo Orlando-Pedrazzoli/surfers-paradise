@@ -18,6 +18,7 @@ interface Category {
   name: string;
   slug: string;
   image?: string;
+  megaImage?: string;
   parent?: { _id: string; name: string } | string | null;
   level: number;
   order: number;
@@ -53,11 +54,13 @@ export default function AdminCategoriasPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadingMega, setUploadingMega] = useState(false);
   const [form, setForm] = useState({
     name: '',
     slug: '',
     description: '',
     image: '',
+    megaImage: '',
     parent: '',
     level: 0,
     order: 0,
@@ -123,6 +126,35 @@ export default function AdminCategoriasPage() {
 
   const removeImage = () => setForm(prev => ({ ...prev, image: '' }));
 
+  // ───── Upload da imagem do MEGA-MENU (só raízes) ─────
+  const handleMegaImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingMega(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'surfers-paradise/categorias-mega');
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        setForm(prev => ({ ...prev, megaImage: data.url }));
+        toast.success('Imagem do mega-menu enviada!');
+      } else {
+        toast.error(data.error || 'Erro ao enviar imagem');
+      }
+    } catch {
+      toast.error('Erro ao enviar imagem');
+    } finally {
+      setUploadingMega(false);
+      e.target.value = '';
+    }
+  };
+
+  const removeMegaImage = () => setForm(prev => ({ ...prev, megaImage: '' }));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -169,6 +201,7 @@ export default function AdminCategoriasPage() {
       slug: cat.slug,
       description: '',
       image: cat.image || '',
+      megaImage: cat.megaImage || '',
       parent:
         typeof cat.parent === 'object' && cat.parent
           ? cat.parent._id
@@ -206,6 +239,7 @@ export default function AdminCategoriasPage() {
       slug: '',
       description: '',
       image: '',
+      megaImage: '',
       parent: '',
       level: 0,
       order: 0,
@@ -320,8 +354,8 @@ export default function AdminCategoriasPage() {
               </label>
               <p className='text-xs text-gray-400 mb-2'>
                 Aparece nos círculos da secção &quot;Compre por categoria&quot;
-                na home. Use uma imagem quadrada (mín. 224×224px) para ficar
-                nítida.
+                na home (subcategorias). Use uma imagem quadrada (mín.
+                224×224px) para ficar nítida.
               </p>
               <div className='flex items-center gap-4'>
                 {form.image ? (
@@ -370,6 +404,67 @@ export default function AdminCategoriasPage() {
               </div>
             </div>
 
+            {/* ═══ IMAGEM DO MEGA-MENU (só categorias-raiz) ═══ */}
+            {!form.parent && (
+              <div className='md:col-span-2'>
+                <label className='block text-sm font-medium text-gray-700 mb-1'>
+                  Imagem do Mega-Menu
+                  <span className='ml-2 text-xs font-normal text-gray-400'>
+                    (só para categorias principais)
+                  </span>
+                </label>
+                <p className='text-xs text-gray-400 mb-2'>
+                  Aparece no painel do mega-menu da navbar, ao lado dos links.
+                  Use uma imagem horizontal (~800×600px, proporção 4:3).
+                </p>
+                <div className='flex items-center gap-4'>
+                  {form.megaImage ? (
+                    <div className='relative w-40 h-28 rounded-lg overflow-hidden border-2 border-[#FF6600] shrink-0'>
+                      <Image
+                        src={form.megaImage}
+                        alt='Pré-visualização do mega-menu'
+                        fill
+                        sizes='160px'
+                        className='object-cover'
+                      />
+                    </div>
+                  ) : (
+                    <div className='flex items-center justify-center w-40 h-28 rounded-lg bg-gray-100 text-gray-400 shrink-0'>
+                      <ImagePlus size={28} />
+                    </div>
+                  )}
+
+                  <div className='flex flex-col gap-2'>
+                    <label className='inline-flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#FF6600] hover:bg-orange-50 transition-colors text-sm text-gray-600'>
+                      <Upload size={16} />
+                      {uploadingMega
+                        ? 'Enviando...'
+                        : form.megaImage
+                          ? 'Trocar imagem'
+                          : 'Enviar imagem'}
+                      <input
+                        type='file'
+                        accept='image/*'
+                        onChange={handleMegaImageUpload}
+                        disabled={uploadingMega}
+                        className='hidden'
+                      />
+                    </label>
+                    {form.megaImage && (
+                      <button
+                        type='button'
+                        onClick={removeMegaImage}
+                        className='inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700'
+                      >
+                        <X size={14} />
+                        Remover imagem
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className='flex items-center gap-2 md:col-span-2'>
               <input
                 type='checkbox'
@@ -385,7 +480,7 @@ export default function AdminCategoriasPage() {
             <div className='flex gap-3 md:col-span-2'>
               <button
                 type='submit'
-                disabled={uploading}
+                disabled={uploading || uploadingMega}
                 className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
               >
                 {editingId ? 'Atualizar' : 'Criar'}

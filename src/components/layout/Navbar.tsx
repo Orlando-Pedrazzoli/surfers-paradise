@@ -6,36 +6,53 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { Search, User, Menu, X, ChevronDown, ArrowRight } from 'lucide-react';
-import { mainCategories } from '@/lib/config/navigation';
+import { specialNavItems, fallbackCategories } from '@/lib/config/navigation';
 import CartIcon from '@/components/layout/CartIcon';
 
-interface SubCategory {
+interface Category {
   _id: string;
   name: string;
   slug: string;
   parent?: string | null;
+  level?: number;
+  image?: string;
+  megaImage?: string;
 }
 
 interface CatalogData {
-  categories: SubCategory[];
+  categories: Category[];
   brands: { _id: string; name: string; slug: string }[];
 }
 
+// Item renderizado na navbar: pode ser uma categoria (com _id/slug/image)
+// ou um item especial (ex.: Promoção, sem categoria associada).
+interface NavItem {
+  label: string;
+  href: string;
+  slug?: string;
+  _id?: string;
+  image?: string;
+  megaImage?: string;
+  highlight?: boolean;
+}
+
 // ═══════════════════════════════════════════════════════════════
-// CONFIGURAÇÃO DOS MEGA-MENUS
+// IMAGENS DOS MEGA-MENUS (fallback)
 // ═══════════════════════════════════════════════════════════════
-// Cada categoria com submenu pode ter uma imagem promocional com
-// CTA. Quando a Adriana enviar as fotos finais, substitua os
-// ficheiros em /public/images/ com os nomes abaixo.
+// A imagem do mega-menu vem agora da IMAGEM DA CATEGORIA-RAIZ
+// (campo `image`, carregado no admin /admin/categorias).
+// Este mapa serve só de FALLBACK para as categorias antigas, enquanto
+// não tiverem imagem carregada no admin. Assim que a raiz tiver `image`,
+// essa imagem do admin tem prioridade.
 
 interface MegaPromo {
   image: string;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   cta: string;
 }
 
-const megaPromos: Record<string, MegaPromo> = {
+const megaPromosFallback: Record<string, MegaPromo> = {
   pranchas: {
     image: '/images/mega-pranchas.jpg',
     title: 'Pranchas em destaque',
@@ -63,16 +80,14 @@ const megaPromos: Record<string, MegaPromo> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// LARGURAS DOS MEGA-MENUS POR CATEGORIA
+// LARGURAS E HEADERS DOS MEGA-MENUS POR CATEGORIA (com defaults)
 // ═══════════════════════════════════════════════════════════════
-// Wetsuits tem 6 subcategorias → precisa de mais espaço para
-// 2 colunas de links + promo image. Quilhas e capas têm menos
-// subcategorias, então o menu compacto funciona melhor.
+// Categorias novas que não estejam nestes mapas usam os valores default.
 
 const MEGA_MENU_WIDTHS: Record<string, number> = {
   pranchas: 560,
   quilhas: 560,
-  wetsuits: 680, // mais largo para acomodar 2 colunas de links + promo
+  wetsuits: 680, // mais largo para 2 colunas de links + promo
   capas: 560,
   decks: 560,
   leashes: 560,
@@ -96,7 +111,7 @@ export default function Navbar() {
   useEffect(() => {
     const fetchCatalog = async () => {
       try {
-        const res = await fetch('/api/catalog');
+        const res = await fetch('/api/catalog', { cache: 'no-store' });
         const data = await res.json();
         if (data.success) setCatalog(data);
       } catch {
@@ -108,14 +123,10 @@ export default function Navbar() {
 
   // ═══════════════════════════════════════════════════════════════
   // STICKY NAVBAR: elevação (sombra) só depois de iniciar o scroll.
-  // A announcement bar fica no fluxo normal e rola embora; o header
-  // tem position: sticky e "cola" no topo. Aqui só controlamos o
-  // estado visual de elevação. Listener passivo → nunca bloqueia o
-  // scroll (boa prática de performance, evita jank).
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll(); // estado inicial correto (ex.: refresh com a página já rolada)
+    onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
@@ -127,21 +138,58 @@ export default function Navbar() {
     }
   };
 
-  const getSlugFromHref = (href: string) => {
-    const parts = href.split('/');
-    return parts[parts.length - 1];
+  // ═══════════════════════════════════════════════════════════════
+  // DEPARTAMENTOS DINÂMICOS
+  // ═══════════════════════════════════════════════════════════════
+  // Raízes (categorias sem parent) vindas do catálogo, já ordenadas
+  // por `order` no endpoint. Os itens especiais (Promoção) são sempre
+  // anexados no fim. Se o catálogo ainda não carregou (ou falhou),
+  // usa o fallback para a navbar nunca ficar vazia.
+  const roots = (catalog?.categories ?? []).filter(c => !c.parent);
+  const departments: NavItem[] =
+    roots.length > 0
+      ? roots.map(r => ({
+          label: r.name,
+          href: `/categoria/${r.slug}`,
+          slug: r.slug,
+          _id: r._id,
+          image: r.image,
+          megaImage: r.megaImage,
+        }))
+      : fallbackCategories.map(f => ({ label: f.label, href: f.href }));
+
+  const navItems: NavItem[] = [
+    ...departments,
+    ...specialNavItems.map(s => ({
+      label: s.label,
+      href: s.href,
+      highlight: s.highlight,
+    })),
+  ];
+
+  const getSubcategories = (parentId?: string): Category[] => {
+    if (!catalog || !parentId) return [];
+    return catalog.categories.filter(c => c.parent === parentId);
   };
 
-  const getSubcategories = (slug: string): SubCategory[] => {
-    if (!catalog) return [];
-    const parent = catalog.categories.find(c => c.slug === slug);
-    if (!parent) return [];
-    return catalog.categories.filter(c => c.parent === parent._id);
+  // Constrói o promo do mega-menu: imagem dedicada do mega-menu
+  // (megaImage, carregada no admin na categoria-raiz) tem prioridade;
+  // senão usa o fallback antigo por slug; senão não mostra promo.
+  const buildPromo = (item: NavItem): MegaPromo | undefined => {
+    const fallback = item.slug ? megaPromosFallback[item.slug] : undefined;
+    const image = item.megaImage || fallback?.image;
+    if (!image) return undefined;
+    return {
+      image,
+      title: fallback?.title ?? item.label,
+      subtitle: fallback?.subtitle,
+      cta: fallback?.cta ?? `Ver ${item.label}`,
+    };
   };
 
-  const handleMouseEnter = (slug: string) => {
+  const handleMouseEnter = (key: string) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setActiveMenu(slug);
+    setActiveMenu(key);
   };
 
   const handleMouseLeave = () => {
@@ -269,30 +317,30 @@ export default function Navbar() {
         <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
             <ul className='flex items-center justify-center gap-0'>
-              {mainCategories.map((cat, idx) => {
-                const slug = getSlugFromHref(cat.href);
-                const subcategories = getSubcategories(slug);
+              {navItems.map((cat, idx) => {
+                const menuKey = cat.slug ?? cat.href;
+                const subcategories = getSubcategories(cat._id);
                 const hasSubmenu = subcategories.length > 0;
-                const isActive = activeMenu === slug;
+                const isActive = activeMenu === menuKey;
                 const showDropdown = isActive && hasSubmenu;
-                // Alinhar à direita se for uma das 2 últimas categorias com submenu
-                // para não cortar nas bordas do ecrã
-                const alignRight = idx >= mainCategories.length - 2;
-
-                // Largura customizada por categoria
-                const menuWidth = MEGA_MENU_WIDTHS[slug] || DEFAULT_MENU_WIDTH;
+                // Alinhar à direita nas 2 últimas para não cortar nas bordas
+                const alignRight = idx >= navItems.length - 2;
+                const menuWidth =
+                  (cat.slug && MEGA_MENU_WIDTHS[cat.slug]) ||
+                  DEFAULT_MENU_WIDTH;
+                const promo = buildPromo(cat);
 
                 return (
                   <li
                     key={cat.href}
                     className='relative'
-                    onMouseEnter={() => hasSubmenu && handleMouseEnter(slug)}
+                    onMouseEnter={() => hasSubmenu && handleMouseEnter(menuKey)}
                     onMouseLeave={handleMouseLeave}
                   >
                     <Link
                       href={cat.href}
                       className={`flex items-center gap-1 px-4 py-3 text-sm font-medium transition-colors ${
-                        cat.label === 'Promoção'
+                        cat.highlight
                           ? 'text-[#FF6600] hover:text-white'
                           : isActive
                             ? 'text-white bg-gray-800'
@@ -318,9 +366,9 @@ export default function Navbar() {
                       >
                         <div className='p-6'>
                           <MegaMenuContent
-                            categorySlug={slug}
+                            categorySlug={cat.slug ?? ''}
                             subcategories={subcategories}
-                            promo={megaPromos[slug]}
+                            promo={promo}
                             onLinkClick={closeMega}
                           />
                         </div>
@@ -370,11 +418,11 @@ export default function Navbar() {
             )}
 
             <nav className='py-2'>
-              {mainCategories.map(cat => {
-                const slug = getSlugFromHref(cat.href);
-                const subcategories = getSubcategories(slug);
+              {navItems.map(cat => {
+                const menuKey = cat.slug ?? cat.href;
+                const subcategories = getSubcategories(cat._id);
                 const hasSubmenu = subcategories.length > 0;
-                const isExpanded = expandedMobile === slug;
+                const isExpanded = expandedMobile === menuKey;
 
                 return (
                   <div key={cat.href}>
@@ -383,7 +431,7 @@ export default function Navbar() {
                         href={cat.href}
                         onClick={() => setMobileMenuOpen(false)}
                         className={`flex-1 px-4 py-3 text-sm font-medium ${
-                          cat.label === 'Promoção'
+                          cat.highlight
                             ? 'text-[#FF6600]'
                             : 'text-gray-700 hover:text-[#FF6600]'
                         } hover:bg-gray-50`}
@@ -393,7 +441,7 @@ export default function Navbar() {
                       {hasSubmenu && (
                         <button
                           onClick={() =>
-                            setExpandedMobile(isExpanded ? null : slug)
+                            setExpandedMobile(isExpanded ? null : menuKey)
                           }
                           className='px-4 py-3 text-gray-400'
                           aria-label={`Expandir ${cat.label}`}
@@ -447,12 +495,12 @@ export default function Navbar() {
 
 interface MegaMenuContentProps {
   categorySlug: string;
-  subcategories: SubCategory[];
+  subcategories: Category[];
   promo?: MegaPromo;
   onLinkClick: () => void;
 }
 
-// Labels customizados para o header de secção
+// Labels customizados por slug (categorias novas usam o default).
 const SECTION_HEADERS: Record<string, string> = {
   pranchas: 'Por tipo',
   quilhas: 'Por sistema',
@@ -468,7 +516,6 @@ function MegaMenuContent({
   promo,
   onLinkClick,
 }: MegaMenuContentProps) {
-  // Se não há subcategorias, mostrar mensagem
   if (subcategories.length === 0) {
     return (
       <div className='py-4'>
@@ -482,21 +529,10 @@ function MegaMenuContent({
   const sectionHeader = SECTION_HEADERS[categorySlug] || 'Categorias';
   const hasPromo = !!promo;
 
-  // ═══════════════════════════════════════════════════════════════
-  // LÓGICA DE LAYOUT: distribuir subcategorias em colunas
-  // ═══════════════════════════════════════════════════════════════
-  // Casos:
-  //   1. ≤ 5 items, com promo     → 1 coluna de links + promo (5/7)
-  //   2. ≤ 5 items, sem promo     → 1 coluna única
-  //   3. > 5 items, com promo     → 2 colunas estreitas + promo (6/6)
-  //   4. > 5 items, sem promo     → 2 colunas (sem promo)
-
   const needsTwoColumns = subcategories.length > 5;
-  const columns: SubCategory[][] = [];
+  const columns: Category[][] = [];
 
   if (needsTwoColumns) {
-    // Distribui o mais equilibrado possível entre 2 colunas
-    // Ex: 6 items → [3, 3]; 7 items → [4, 3]; 8 items → [4, 4]
     const half = Math.ceil(subcategories.length / 2);
     columns.push(subcategories.slice(0, half));
     columns.push(subcategories.slice(half));
@@ -504,8 +540,6 @@ function MegaMenuContent({
     columns.push(subcategories);
   }
 
-  // Grid spans: ajusta conforme tem promo ou não, e quantas colunas
-  // de links existem.
   let linksColSpan = '';
   let promoColSpan = '';
 
@@ -529,16 +563,12 @@ function MegaMenuContent({
       >
         {columns.map((column, ci) => (
           <div key={ci}>
-            {/* Section header — só na primeira coluna */}
             {ci === 0 && (
               <h3 className='text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3 pb-2 border-b border-gray-100'>
                 {sectionHeader}
               </h3>
             )}
-            {ci > 0 && (
-              // Espaçador para alinhar 2ª coluna com a 1ª
-              <div className='h-[29px]' aria-hidden='true' />
-            )}
+            {ci > 0 && <div className='h-[29px]' aria-hidden='true' />}
 
             <ul className='space-y-0'>
               {column.map(sub => (
@@ -560,8 +590,7 @@ function MegaMenuContent({
               ))}
             </ul>
 
-            {/* "Ver todos" — só no fim da última coluna */}
-            {ci === columns.length - 1 && (
+            {ci === columns.length - 1 && categorySlug && (
               <Link
                 href={`/categoria/${categorySlug}`}
                 onClick={onLinkClick}
@@ -576,10 +605,10 @@ function MegaMenuContent({
       </div>
 
       {/* ═══ COLUNA DE IMAGEM PROMO ═══ */}
-      {hasPromo && (
+      {hasPromo && promo && (
         <div className={promoColSpan}>
           <Link
-            href={`/categoria/${categorySlug}`}
+            href={categorySlug ? `/categoria/${categorySlug}` : '#'}
             onClick={onLinkClick}
             className='group relative block rounded-lg overflow-hidden bg-gray-100 aspect-[4/3]'
           >
@@ -590,14 +619,13 @@ function MegaMenuContent({
               sizes='320px'
               className='object-cover group-hover:scale-105 transition-transform duration-500'
             />
-            {/* Gradient overlay */}
             <div className='absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent' />
-
-            {/* Text content */}
             <div className='absolute inset-x-0 bottom-0 p-4 text-white'>
-              <p className='text-[10px] uppercase tracking-widest opacity-90 mb-1'>
-                {promo.subtitle}
-              </p>
+              {promo.subtitle && (
+                <p className='text-[10px] uppercase tracking-widest opacity-90 mb-1'>
+                  {promo.subtitle}
+                </p>
+              )}
               <h4 className='text-base font-bold mb-2.5 leading-tight'>
                 {promo.title}
               </h4>

@@ -9,21 +9,23 @@ interface CategoryBanner {
   href: string;
 }
 
+// IMPORTANTE: o href deve coincidir com o SLUG da categoria-raiz no banco.
+// Os departamentos reais são plural: decks, leashes, capas.
 const categories: CategoryBanner[] = [
   {
     title: 'Deck',
     image: '/images/category-deck.jpg',
-    href: '/categoria/deck',
+    href: '/categoria/decks',
   },
   {
     title: 'Leash',
     image: '/images/category-leash.jpg',
-    href: '/categoria/leash',
+    href: '/categoria/leashes',
   },
   {
     title: 'Capa',
     image: '/images/category-capa.jpg',
-    href: '/categoria/capa',
+    href: '/categoria/capas',
   },
 ];
 
