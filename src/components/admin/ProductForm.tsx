@@ -381,6 +381,16 @@ function extractId(value: unknown): string {
   return '';
 }
 
+// Arredonda a 2 casas decimais de forma estável (evita erros de float).
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+// Preço com desconto aplicado sobre o preço original.
+function applyDiscount(original: number, pct: number): number {
+  return round2(original * (1 - (pct || 0) / 100));
+}
+
 interface CompletionCheck {
   status: 'incomplete' | 'partial' | 'complete';
   missing: string[];
@@ -580,6 +590,60 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     } else {
       setForm(prev => ({ ...prev, name, slug: generateSlug(name) }));
     }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROMOÇÃO — recálculo automático do preço
+  // ═══════════════════════════════════════════════════════════════
+  // Regra: o Preço Original (compareAtPrice) é a BASE do cálculo. O
+  // Preço de Venda é sempre = Original × (1 − %/100). Recalcula-se
+  // sempre a partir do Original (nunca do preço já descontado), o que
+  // evita "desconto sobre desconto".
+
+  const toggleOnSale = (checked: boolean) => {
+    setForm(prev => {
+      if (checked) {
+        // Ativar: o Preço de Venda atual vira o Preço Original (snapshot).
+        const original = prev.price;
+        const pct = prev.salePercentage || 0;
+        return {
+          ...prev,
+          isOnSale: true,
+          compareAtPrice: original,
+          price: pct > 0 ? applyDiscount(original, pct) : prev.price,
+        };
+      }
+      // Desativar: reverte o Preço de Venda ao Original e limpa o desconto.
+      return {
+        ...prev,
+        isOnSale: false,
+        price: prev.compareAtPrice > 0 ? prev.compareAtPrice : prev.price,
+        compareAtPrice: 0,
+        salePercentage: 0,
+      };
+    });
+  };
+
+  const handleSalePercentage = (raw: number) => {
+    const pct = Math.min(100, Math.max(0, raw || 0));
+    setForm(prev => {
+      const base = prev.compareAtPrice > 0 ? prev.compareAtPrice : prev.price;
+      return { ...prev, salePercentage: pct, price: applyDiscount(base, pct) };
+    });
+  };
+
+  // Enquanto em promoção, editar o Preço Original recalcula o Preço de Venda.
+  const handleCompareAtPrice = (val: number) => {
+    setForm(prev => {
+      if (prev.isOnSale) {
+        return {
+          ...prev,
+          compareAtPrice: val,
+          price: applyDiscount(val, prev.salePercentage),
+        };
+      }
+      return { ...prev, compareAtPrice: val };
+    });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1021,12 +1085,17 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                     })
                   }
                   required
+                  readOnly={form.isOnSale}
                   placeholder='0,00'
-                  className='w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                  className={`w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] ${
+                    form.isOnSale ? 'bg-gray-100 cursor-not-allowed' : ''
+                  }`}
                 />
               </div>
               <p className='text-xs text-gray-400 mt-1'>
-                Preço que o cliente paga
+                {form.isOnSale
+                  ? 'Calculado: Preço Original − desconto %'
+                  : 'Preço que o cliente paga'}
               </p>
             </div>
             <div>
@@ -1043,17 +1112,16 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                   min='0'
                   value={form.compareAtPrice || ''}
                   onChange={e =>
-                    setForm({
-                      ...form,
-                      compareAtPrice: parseFloat(e.target.value) || 0,
-                    })
+                    handleCompareAtPrice(parseFloat(e.target.value) || 0)
                   }
                   placeholder='0,00'
                   className='w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                 />
               </div>
               <p className='text-xs text-gray-400 mt-1'>
-                Riscado (opcional, para mostrar desconto)
+                {form.isOnSale
+                  ? 'Base da promoção (riscado no site)'
+                  : 'Riscado (opcional, para mostrar desconto)'}
               </p>
             </div>
             <div>
@@ -1121,6 +1189,95 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* MARCADORES ESPECIAIS (logo abaixo de Preços — inclui promoção) */}
+        <div className='bg-white rounded-lg shadow-sm p-6'>
+          <h2 className='text-lg font-semibold mb-4'>Marcadores Especiais</h2>
+          <div className='flex flex-wrap gap-6'>
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={form.isActive}
+                onChange={e => setForm({ ...form, isActive: e.target.checked })}
+              />
+              Ativo (kill switch geral)
+            </label>
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={form.isFeatured}
+                onChange={e =>
+                  setForm({ ...form, isFeatured: e.target.checked })
+                }
+              />
+              Destaque
+            </label>
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={form.isNewArrival}
+                onChange={e =>
+                  setForm({ ...form, isNewArrival: e.target.checked })
+                }
+              />
+              Novidade
+            </label>
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={form.isOnSale}
+                onChange={e => toggleOnSale(e.target.checked)}
+              />
+              Em Promoção
+            </label>
+          </div>
+
+          {/* Detalhe da promoção: desconto % + preview do cálculo */}
+          {form.isOnSale && (
+            <div className='mt-4 p-4 bg-green-50 border border-green-200 rounded-lg'>
+              <div className='flex items-center gap-3 flex-wrap'>
+                <label className='text-sm font-medium text-gray-700'>
+                  Desconto (%)
+                </label>
+                <input
+                  type='number'
+                  min='0'
+                  max='100'
+                  value={form.salePercentage || ''}
+                  onChange={e =>
+                    handleSalePercentage(parseInt(e.target.value) || 0)
+                  }
+                  placeholder='0'
+                  className='w-24 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                />
+                {form.compareAtPrice > 0 && form.salePercentage > 0 && (
+                  <div className='flex items-center gap-2 text-sm'>
+                    <span className='text-gray-400 line-through'>
+                      R$ {form.compareAtPrice.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className='text-gray-400'>→</span>
+                    <span className='font-bold text-green-700 text-base'>
+                      R$ {form.price.toFixed(2).replace('.', ',')}
+                    </span>
+                    <span className='text-xs text-green-600'>
+                      (poupa R${' '}
+                      {(form.compareAtPrice - form.price)
+                        .toFixed(2)
+                        .replace('.', ',')}
+                      )
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className='text-xs text-gray-500 mt-2'>
+                O <strong>Preço de Venda</strong> é recalculado automaticamente
+                a partir do <strong>Preço Original</strong> × desconto. Para
+                mudar a base, ajuste o Preço Original na secção Preços. Ao
+                desmarcar &quot;Em Promoção&quot;, o preço volta ao original.
+              </p>
             </div>
           )}
         </div>
@@ -1954,67 +2111,6 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 família deve ser principal.
               </p>
             </div>
-          </div>
-        </div>
-
-        {/* MARCADORES */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
-          <h2 className='text-lg font-semibold mb-4'>Marcadores Especiais</h2>
-          <div className='flex flex-wrap gap-6'>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={form.isActive}
-                onChange={e => setForm({ ...form, isActive: e.target.checked })}
-              />
-              Ativo (kill switch geral)
-            </label>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={form.isFeatured}
-                onChange={e =>
-                  setForm({ ...form, isFeatured: e.target.checked })
-                }
-              />
-              Destaque
-            </label>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={form.isNewArrival}
-                onChange={e =>
-                  setForm({ ...form, isNewArrival: e.target.checked })
-                }
-              />
-              Novidade
-            </label>
-            <label className='flex items-center gap-2 text-sm'>
-              <input
-                type='checkbox'
-                checked={form.isOnSale}
-                onChange={e => setForm({ ...form, isOnSale: e.target.checked })}
-              />
-              Em Promoção
-            </label>
-            {form.isOnSale && (
-              <div className='flex items-center gap-2'>
-                <label className='text-sm text-gray-700'>Desconto %</label>
-                <input
-                  type='number'
-                  min='0'
-                  max='100'
-                  value={form.salePercentage || ''}
-                  onChange={e =>
-                    setForm({
-                      ...form,
-                      salePercentage: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className='w-20 px-2 py-1 border border-gray-300 rounded text-sm'
-                />
-              </div>
-            )}
           </div>
         </div>
 
