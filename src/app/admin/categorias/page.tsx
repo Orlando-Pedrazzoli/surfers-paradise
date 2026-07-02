@@ -211,6 +211,9 @@ export default function AdminCategoriasPage() {
       isActive: cat.isActive,
     });
     setShowForm(true);
+    // Leva o admin ao formulário (que está no topo) para perceber que
+    // o modo de edição foi ativado.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -272,7 +275,7 @@ export default function AdminCategoriasPage() {
             resetForm();
             setShowForm(!showForm);
           }}
-          className='flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+          className='flex items-center gap-2 px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
         >
           <Plus size={18} />
           Nova Categoria
@@ -481,7 +484,7 @@ export default function AdminCategoriasPage() {
               <button
                 type='submit'
                 disabled={uploading || uploadingMega}
-                className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+                className='px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
               >
                 {editingId ? 'Atualizar' : 'Criar'}
               </button>

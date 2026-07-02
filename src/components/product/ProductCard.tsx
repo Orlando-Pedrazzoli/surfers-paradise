@@ -242,6 +242,11 @@ export default function ProductCard({
           />
         </button>
 
+        {/* ═══ BADGES ═══
+            Um só badge de desconto de cada vez: "PROMOÇÃO" e "-X%" são
+            redundantes (ambos sinalizam desconto). Se está em promoção,
+            mostra só "PROMOÇÃO"; senão, mostra "-X%" quando há preço
+            comparativo. "NOVIDADE" é um eixo independente e coexiste. */}
         <div
           className={`absolute ${expanded ? 'top-3 left-3' : 'top-2 left-2'} flex flex-col gap-1`}
         >
@@ -259,7 +264,7 @@ export default function ProductCard({
               PROMOÇÃO
             </span>
           )}
-          {hasDiscount && (
+          {hasDiscount && !product.isOnSale && (
             <span
               className={`bg-red-600 text-white font-bold rounded ${expanded ? 'text-xs px-2.5 py-1' : 'text-[10px] px-2 py-0.5'}`}
             >

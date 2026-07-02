@@ -153,6 +153,19 @@ export default function ProductDetailPage({
   const installment = calculateInstallments(product.price);
   const images = product.images.length > 0 ? product.images : [];
 
+  // ═══ BADGES: desconto (compareAtPrice) + promoção/novidade ═══
+  const hasDiscount = !!(
+    product.compareAtPrice && product.compareAtPrice > product.price
+  );
+  const discountPct = hasDiscount
+    ? product.salePercentage ||
+      Math.round(
+        ((product.compareAtPrice! - product.price) / product.compareAtPrice!) *
+          100,
+      )
+    : 0;
+  const showBadges = product.isNewArrival || product.isOnSale || hasDiscount;
+
   const colorFamilyProducts = familyProducts.filter(
     fp => ['color', 'both'].includes(fp.variantType || '') && fp.colorCode,
   );
@@ -241,6 +254,27 @@ export default function ProductDetailPage({
 
         {/* Product Info */}
         <div className='space-y-4'>
+          {/* ═══ BADGES ═══ */}
+          {showBadges && (
+            <div className='flex flex-wrap items-center gap-2'>
+              {product.isNewArrival && (
+                <span className='bg-[#FF6600] text-white font-bold rounded text-xs px-2.5 py-1'>
+                  NOVIDADE
+                </span>
+              )}
+              {product.isOnSale && (
+                <span className='bg-green-600 text-white font-bold rounded text-xs px-2.5 py-1'>
+                  PROMOÇÃO
+                </span>
+              )}
+              {hasDiscount && !product.isOnSale && (
+                <span className='bg-red-600 text-white font-bold rounded text-xs px-2.5 py-1'>
+                  -{discountPct}%
+                </span>
+              )}
+            </div>
+          )}
+
           <h1 className='text-xl md:text-2xl font-bold text-[#FF6600] leading-tight'>
             {product.name}
           </h1>
