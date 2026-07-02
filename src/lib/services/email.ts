@@ -1,4 +1,9 @@
-import nodemailer from 'nodemailer';
+// 📄 src/lib/services/email.ts
+// Envio de e-mails transacionais via Resend.
+// Env: RESEND_API_KEY, EMAIL_FROM (ex: "Surfers Paradise <noreply@send.surfersparadise.com.br>")
+// Mesmas exports da versão nodemailer — nenhum consumidor precisa mudar.
+
+import { Resend } from 'resend';
 import { company } from '@/lib/config/company';
 
 interface EmailParams {
@@ -7,25 +12,12 @@ interface EmailParams {
   html: string;
 }
 
-// Transporter SMTP — configure as variáveis no .env.local:
-//   SMTP_HOST=smtp.gmail.com
-//   SMTP_PORT=587
-//   SMTP_USER=seu-email@gmail.com
-//   SMTP_PASS=senha-de-app   (App Password do Gmail, NÃO a senha normal)
-//   EMAIL_FROM="Surfers Paradise <seu-email@gmail.com>"   (opcional)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 const FROM =
-  process.env.EMAIL_FROM ||
-  `${company.name} <${process.env.SMTP_USER || company.email}>`;
+  process.env.EMAIL_FROM || `${company.name} <onboarding@resend.dev>`;
 
 export async function sendEmail({
   to,
@@ -33,13 +25,24 @@ export async function sendEmail({
   html,
 }: EmailParams): Promise<boolean> {
   try {
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    if (!resend) {
       console.warn(
-        `[Email] SMTP não configurado (SMTP_USER/SMTP_PASS ausentes). Email não enviado: "${subject}"`,
+        `[Email] RESEND_API_KEY ausente. Email não enviado: "${subject}"`,
       );
       return false;
     }
-    await transporter.sendMail({ from: FROM, to, subject, html });
+
+    const { error } = await resend.emails.send({
+      from: FROM,
+      to,
+      subject,
+      html,
+    });
+
+    if (error) {
+      console.error('[Email] Resend retornou erro:', error);
+      return false;
+    }
     return true;
   } catch (error) {
     console.error('[Email] Erro ao enviar:', error);
@@ -51,7 +54,23 @@ export async function sendOtpEmail(to: string, code: string): Promise<boolean> {
   return sendEmail({
     to,
     subject: 'Código de Verificação - Surfers Paradise',
-    html: `<p>Seu código: <strong>${code}</strong></p>`,
+    html: `
+    <div style="background:#f4f4f4;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+      <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;">
+        <div style="background:#1A1A1A;padding:24px;text-align:center;">
+          <h1 style="margin:0;color:#ffffff;font-size:20px;letter-spacing:1px;">SURFERS PARADISE</h1>
+        </div>
+        <div style="padding:32px 28px;text-align:center;">
+          <p style="margin:0 0 16px;color:#4b5563;font-size:15px;">Seu código de verificação:</p>
+          <div style="display:inline-block;background:#FFF7F0;border:2px dashed #FF6600;border-radius:12px;padding:16px 32px;">
+            <span style="font-size:32px;font-weight:800;color:#FF6600;letter-spacing:8px;">${code}</span>
+          </div>
+          <p style="margin:20px 0 0;color:#9ca3af;font-size:12px;">
+            O código expira em alguns minutos. Se você não solicitou, ignore este e-mail.
+          </p>
+        </div>
+      </div>
+    </div>`,
   });
 }
 
@@ -59,10 +78,35 @@ export async function sendOrderConfirmation(
   to: string,
   orderId: string,
 ): Promise<boolean> {
+  const orderUrl = `${company.url}/meus-pedidos`;
   return sendEmail({
     to,
     subject: `Pedido Confirmado #${orderId} - Surfers Paradise`,
-    html: `<p>Seu pedido #${orderId} foi confirmado!</p>`,
+    html: `
+    <div style="background:#f4f4f4;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+      <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;">
+        <div style="background:#1A1A1A;padding:24px;text-align:center;">
+          <h1 style="margin:0;color:#ffffff;font-size:20px;letter-spacing:1px;">SURFERS PARADISE</h1>
+        </div>
+        <div style="padding:32px 28px;">
+          <h2 style="margin:0 0 12px;color:#111827;font-size:20px;">Pedido confirmado! 🤙</h2>
+          <p style="margin:0 0 20px;color:#4b5563;font-size:15px;line-height:1.6;">
+            Recebemos o pagamento do seu pedido <strong>#${orderId}</strong>.
+            Vamos preparar tudo e te avisamos quando for despachado.
+          </p>
+          <div style="text-align:center;margin:24px 0;">
+            <a href="${orderUrl}" style="display:inline-block;background:#FF6600;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 36px;border-radius:8px;">
+              Acompanhar pedido
+            </a>
+          </div>
+        </div>
+        <div style="background:#fafafa;padding:18px 24px;border-top:1px solid #eee;text-align:center;">
+          <p style="margin:0;color:#9ca3af;font-size:11px;">
+            ${company.name} · ${company.email} · ${company.whatsapp}
+          </p>
+        </div>
+      </div>
+    </div>`,
   });
 }
 

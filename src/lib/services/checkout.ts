@@ -1,10 +1,19 @@
-// 📄 src/lib/services/checkout.ts (NOVO)
-// Orquestra o checkout online: valida → totais server-side → antifraude →
-// cria pedido pending → cria pedido na Pagar.me → atualiza status.
+// 📄 src/lib/services/checkout.ts
+// Orquestra o checkout online: valida → cupom server-side → totais →
+// antifraude → cria pedido pending → cria pedido na Pagar.me → atualiza status.
+//
+// v2: desconto (cupom + método) distribuído proporcionalmente nos itens
+// enviados à Pagar.me — a Orders API V5 não tem campo de desconto e cobra
+// sempre soma(items) + frete.
+// v2: dispara sendOrderConfirmation quando o cartão é aprovado na hora.
+// v3: cupom revalidado e RECALCULADO server-side contra o model Coupon —
+// o couponDiscount enviado pelo cliente é ignorado (anti-tampering).
+// v3: usedCount incrementado atomicamente após sucesso no gateway.
 
 import { z } from 'zod';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
+import Coupon from '@/lib/models/Coupon';
 import { company } from '@/lib/config/company';
 import {
   createOrder as createPagarmeOrder,
@@ -12,6 +21,7 @@ import {
   type PagarmeAddressInput,
 } from '@/lib/services/pagarme';
 import { checkFraud } from '@/lib/services/fraudProtection';
+import { sendOrderConfirmation } from '@/lib/services/email';
 
 export type PaymentMethod = 'credit_card' | 'pix' | 'boleto';
 
@@ -59,7 +69,9 @@ const baseSchema = z.object({
     })
     .optional(),
   coupon: z.string().optional().default(''),
-  couponDiscount: z.number().nonnegative().optional().default(0), // reais
+  // Aceito por compatibilidade com o frontend, mas IGNORADO:
+  // o desconto é recalculado server-side em resolveCoupon().
+  couponDiscount: z.number().nonnegative().optional().default(0),
   cardToken: z.string().optional(),
   installments: z.number().int().positive().optional(),
   ip: z.string().optional(),
@@ -86,6 +98,85 @@ function mapAddress(a: z.infer<typeof addressSchema>): PagarmeAddressInput {
   };
 }
 
+/**
+ * Revalida o cupom no banco e recalcula o desconto server-side.
+ * Mesmas regras da rota /api/coupons/validate.
+ * Retorna { discount } ou { error } com mensagem pro cliente.
+ */
+async function resolveCoupon(
+  code: string,
+  subtotal: number,
+): Promise<
+  { discount: number; error?: never } | { error: string; discount?: never }
+> {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized) return { discount: 0 };
+
+  const coupon = await Coupon.findOne({ code: normalized });
+  if (!coupon) return { error: 'Cupom inválido' };
+  if (!coupon.isActive) return { error: 'Cupom inativo' };
+
+  const now = new Date();
+  if (now < coupon.validFrom) return { error: 'Cupom ainda não está válido' };
+  if (now > coupon.validUntil) return { error: 'Cupom expirado' };
+
+  const usageLimit = coupon.usageLimit ?? 0;
+  if (usageLimit > 0 && coupon.usedCount >= usageLimit) {
+    return { error: 'Cupom esgotado' };
+  }
+  if (coupon.minOrderValue && subtotal < coupon.minOrderValue) {
+    return {
+      error: `Pedido mínimo de R$ ${coupon.minOrderValue.toFixed(2)} para usar este cupom`,
+    };
+  }
+
+  let discount =
+    coupon.type === 'percentage'
+      ? (subtotal * coupon.value) / 100
+      : coupon.value;
+  if (coupon.maxDiscount && coupon.maxDiscount > 0) {
+    discount = Math.min(discount, coupon.maxDiscount);
+  }
+  discount = Math.min(discount, subtotal);
+  return { discount: round2(discount) };
+}
+
+/**
+ * Distribui o desconto total proporcionalmente entre as linhas do carrinho,
+ * em CENTAVOS, garantindo que a soma feche exatamente com o valor esperado.
+ * Cada linha vira um item Pagar.me com quantity 1 e amount = total da linha
+ * já descontado (a quantidade vai no nome, ex: "Deck Frontal (x2)").
+ */
+function buildPagarmeItems(
+  items: z.infer<typeof itemSchema>[],
+  subtotal: number,
+  targetTotalCents: number,
+) {
+  const lineTotalsCents = items.map(i => toCents(i.price * i.quantity));
+  const subtotalCents = toCents(subtotal);
+
+  let allocated = 0;
+  return items.map((item, idx) => {
+    const isLast = idx === items.length - 1;
+    let cents: number;
+    if (isLast) {
+      cents = targetTotalCents - allocated; // remainder fecha a conta
+    } else {
+      cents = Math.round(
+        (lineTotalsCents[idx] / subtotalCents) * targetTotalCents,
+      );
+      cents = Math.max(1, cents); // Pagar.me exige amount >= 1
+      allocated += cents;
+    }
+    return {
+      name: item.quantity > 1 ? `${item.name} (x${item.quantity})` : item.name,
+      quantity: 1,
+      amount: cents,
+      code: item.sku || undefined,
+    };
+  });
+}
+
 export async function processCheckout(
   method: PaymentMethod,
   raw: unknown,
@@ -109,9 +200,15 @@ export async function processCheckout(
   await connectDB();
 
   // 1. Totais 100% server-side (NUNCA confie no total do cliente)
-  // ⚠️ HARDENING recomendado: revalidar i.price contra o Product no banco (anti-tampering).
+  // ⚠️ HARDENING recomendado: revalidar i.price contra o Product no banco.
   const subtotal = input.items.reduce((s, i) => s + i.price * i.quantity, 0);
-  const couponDiscount = Math.min(input.couponDiscount, subtotal);
+
+  // 1a. Cupom: revalidado e recalculado no banco — valor do cliente ignorado
+  const couponResult = await resolveCoupon(input.coupon, subtotal);
+  if (couponResult.error) {
+    return { status: 400, body: { error: couponResult.error } };
+  }
+  const couponDiscount = couponResult.discount ?? 0;
 
   let methodDiscount = 0;
   if (method === 'pix') {
@@ -124,8 +221,11 @@ export async function processCheckout(
   }
 
   const totalDiscount = round2(couponDiscount + methodDiscount);
-  const total = round2(subtotal - totalDiscount + input.shippingCost);
-  if (total <= 0) return { status: 400, body: { error: 'Total inválido.' } };
+  const productsTotal = round2(subtotal - totalDiscount); // itens após desconto
+  const total = round2(productsTotal + input.shippingCost);
+  if (total <= 0 || productsTotal <= 0) {
+    return { status: 400, body: { error: 'Total inválido.' } };
+  }
 
   // Parcelamento (só cartão): respeita máx. e parcela mínima
   let installments = 1;
@@ -180,7 +280,7 @@ export async function processCheckout(
     subtotal: round2(subtotal),
     shippingCost: input.shippingCost,
     discount: totalDiscount,
-    coupon: input.coupon,
+    coupon: input.coupon ? input.coupon.trim().toUpperCase() : '',
     total,
     shippingAddress: {
       ...input.shippingAddress,
@@ -193,6 +293,7 @@ export async function processCheckout(
   });
 
   // 4. Cria o pedido na Pagar.me
+  // Itens com desconto distribuído: a soma dos amounts + frete = total exato.
   try {
     const payment =
       method === 'credit_card'
@@ -216,14 +317,21 @@ export async function processCheckout(
       billingAddress: mapAddress(input.shippingAddress),
       shippingAddress: mapAddress(input.shippingAddress),
       shippingAmount: toCents(input.shippingCost),
-      items: input.items.map(i => ({
-        name: i.name,
-        quantity: i.quantity,
-        amount: toCents(i.price),
-        code: i.sku || undefined,
-      })),
+      items: buildPagarmeItems(input.items, subtotal, toCents(productsTotal)),
       payment,
     });
+
+    // 4a. Consumo do cupom: incremento atômico após sucesso no gateway.
+    // (Não incrementa em falha de gateway; pedido PIX abandonado consome —
+    // trade-off aceito para loja pequena, evita corrida no limite de uso.)
+    if (couponDiscount > 0 && input.coupon) {
+      Coupon.updateOne(
+        { code: input.coupon.trim().toUpperCase() },
+        { $inc: { usedCount: 1 } },
+      )
+        .exec()
+        .catch(e => console.error('[Checkout] falha ao incrementar cupom:', e));
+    }
 
     // 5. Atualiza pedido com o retorno do gateway
     order.payment.pagarmeOrderId = pg.id;
@@ -244,12 +352,23 @@ export async function processCheckout(
       order.payment.paidAt = new Date();
       order.status = 'confirmed';
     } else if (
-      ['failed', 'not_authorized', 'refused'].includes(gwStatus || '')
+      ['failed', 'not_authorized', 'with_error'].includes(gwStatus || '')
     ) {
       order.payment.status = 'failed';
     }
 
     await order.save();
+
+    // 6. Pagamento aprovado na hora (cartão) → confirma por e-mail.
+    // PIX/boleto pagos depois são confirmados pelo webhook.
+    if (order.payment.status === 'paid') {
+      const email = order.customerSnapshot?.email || order.guestEmail;
+      if (email) {
+        sendOrderConfirmation(email, order.orderNumber).catch(e =>
+          console.error('[Checkout] falha ao enviar confirmação:', e),
+        );
+      }
+    }
 
     const ok = order.payment.status !== 'failed';
     return {
@@ -260,6 +379,7 @@ export async function processCheckout(
         orderNumber: order.orderNumber,
         paymentStatus: order.payment.status,
         total,
+        discount: totalDiscount,
         installments,
         pix: pg.pix
           ? {
