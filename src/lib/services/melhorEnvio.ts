@@ -1,6 +1,11 @@
-// src/lib/services/melhorEnvio.ts
+// 📄 src/lib/services/melhorEnvio.ts
 // Integração Melhor Envio API v2
 // Docs: https://docs.melhorenvio.com.br
+// v2: normalização de peso — o catálogo guarda peso em GRAMAS (ProductForm),
+// a API do Melhor Envio espera KG. normalizeWeightKg converte com heurística
+// segura (≥30 = gramas): nenhum produto de surf pesa mais de 30kg nem menos
+// de 30g. Aplicada como rede de segurança em toda cotação/etiqueta.
+// v2: logging de serviços rejeitados na cotação (diagnóstico).
 
 const IS_SANDBOX = process.env.MELHOR_ENVIO_SANDBOX === 'true';
 
@@ -13,6 +18,20 @@ const USER_AGENT =
   process.env.MELHOR_ENVIO_USER_AGENT ||
   'SurfersParadise (lojasurfersparadiseoficial@gmail.com)';
 const FROM_CEP = (process.env.MELHOR_ENVIO_FROM_CEP || '').replace(/\D/g, '');
+
+// ─────────────────────────────────────────────
+// Normalização de unidades
+// ─────────────────────────────────────────────
+
+/**
+ * Converte o peso para KG. O catálogo (ProductForm) guarda peso em GRAMAS;
+ * a API do Melhor Envio espera KG. Heurística: valores >= 30 são gramas
+ * (nenhum item de surf pesa mais de 30kg; nenhum pesa menos de 30g).
+ */
+export function normalizeWeightKg(weight: number): number {
+  if (!weight || weight <= 0) return 0;
+  return weight >= 30 ? weight / 1000 : weight;
+}
 
 // ─────────────────────────────────────────────
 // Tipos
@@ -30,7 +49,7 @@ export interface ShippingQuote {
 export interface ShippingParams {
   cepOrigem?: string; // opcional: default MELHOR_ENVIO_FROM_CEP
   cepDestino: string;
-  weight: number; // kg
+  weight: number; // kg (gramas são convertidos automaticamente)
   height: number; // cm
   width: number; // cm
   length: number; // cm
@@ -156,7 +175,7 @@ export async function calculateShipping(
     from: { postal_code: origem },
     to: { postal_code: destino },
     package: {
-      weight: params.weight,
+      weight: normalizeWeightKg(params.weight),
       height: params.height,
       width: params.width,
       length: params.length,
@@ -172,6 +191,15 @@ export async function calculateShipping(
     '/me/shipment/calculate',
     { method: 'POST', body },
   );
+
+  // Diagnóstico: expõe o motivo de cada serviço sem cotação
+  const rejected = results.filter(r => r.error);
+  if (rejected.length > 0) {
+    console.warn(
+      '[MelhorEnvio] serviços sem cotação:',
+      rejected.map(r => `${r.name}: ${r.error}`).join(' | '),
+    );
+  }
 
   return results
     .filter(r => !r.error && (r.price || r.custom_price))
@@ -226,7 +254,7 @@ export async function createShippingLabel(
       },
       volumes: [
         {
-          weight: params.packageData.weight,
+          weight: normalizeWeightKg(params.packageData.weight),
           height: params.packageData.height,
           width: params.packageData.width,
           length: params.packageData.length,

@@ -1,8 +1,10 @@
 // 📄 src/app/api/shipping/label/route.ts
 // Gera etiqueta de envio no Melhor Envio para um pedido pago (admin).
-// Fluxo: valida pedido → monta volume → carrinho ME → checkout (saldo) → generate → print.
 // Body: { orderId: string, serviceId?: number, package?: { weight, height, width, length } }
 // Retorna: { labelUrl, shipmentId, protocol }
+// v3: populate corrigido para o schema real do Product — dimensões são
+// ANINHADAS (dimensions.length/width/height) e o peso está em GRAMAS
+// (normalizado por item via normalizeWeightKg).
 
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/config';
@@ -12,6 +14,7 @@ import {
   createShippingLabel,
   calculateShipping,
   trackShipment,
+  normalizeWeightKg,
 } from '@/lib/services/melhorEnvio';
 
 export const runtime = 'nodejs';
@@ -24,6 +27,11 @@ interface PackageOverride {
   height: number;
   width: number;
   length: number;
+}
+
+interface PopulatedProductDims {
+  weight?: number; // gramas (catálogo)
+  dimensions?: { length?: number; width?: number; height?: number }; // cm
 }
 
 export async function POST(request: Request) {
@@ -51,10 +59,10 @@ export async function POST(request: Request) {
   try {
     await connectDB();
 
-    // 2. Carrega e valida o pedido
+    // 2. Carrega e valida o pedido (dimensions é objeto aninhado no Product)
     const order = await Order.findById(body.orderId).populate(
       'items.product',
-      'weight height width length',
+      'weight dimensions',
     );
 
     if (!order) {
@@ -106,19 +114,28 @@ export async function POST(request: Request) {
     // 4. Monta o volume: override do admin > dimensões dos produtos > padrão
     let pkg: PackageOverride;
     if (body.package) {
-      pkg = body.package;
+      pkg = {
+        ...body.package,
+        weight: normalizeWeightKg(body.package.weight),
+      };
     } else {
       let weight = 0;
       let height = 0;
       let width = 0;
       let length = 0;
       for (const item of order.items) {
-        const p = item.product as unknown as Partial<PackageOverride> | null;
+        const p = item.product as unknown as PopulatedProductDims | null;
         const qty = item.quantity;
-        weight += (p?.weight ?? DEFAULT_PACKAGE.weight) * qty;
-        height += (p?.height ?? DEFAULT_PACKAGE.height) * qty;
-        width = Math.max(width, p?.width ?? DEFAULT_PACKAGE.width);
-        length = Math.max(length, p?.length ?? DEFAULT_PACKAGE.length);
+        const itemWeightKg = p?.weight
+          ? normalizeWeightKg(p.weight)
+          : DEFAULT_PACKAGE.weight;
+        weight += itemWeightKg * qty;
+        height += (p?.dimensions?.height || DEFAULT_PACKAGE.height) * qty;
+        width = Math.max(width, p?.dimensions?.width || DEFAULT_PACKAGE.width);
+        length = Math.max(
+          length,
+          p?.dimensions?.length || DEFAULT_PACKAGE.length,
+        );
       }
       pkg = {
         weight: Math.max(weight, 0.05),
@@ -173,9 +190,8 @@ export async function POST(request: Request) {
     });
 
     // 7. Atualiza o pedido
-    // Trabalhamos numa variável local com fallback (??) porque o tipo
-    // IOrder marca shipping como opcional — o Mongoose sempre cria o
-    // subdocumento pelos defaults, mas o TS não sabe disso.
+    // Variável local com fallback (??) porque o tipo IOrder marca shipping
+    // como opcional — o Mongoose sempre cria o subdocumento pelos defaults.
     const shipping = order.shipping ?? {
       method: '',
       carrier: '',

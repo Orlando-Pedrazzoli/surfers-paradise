@@ -1,16 +1,21 @@
 // 📄 src/app/api/shipping/calculate/route.ts
 // Cotação de frete via Melhor Envio.
 // Aceita: { cep: string, items?: [{ weight, height, width, length, quantity, price }] }
-// Retorna: { quotes: ShippingQuote[], cep }  (mesmo contrato do stub anterior)
+// Retorna: { quotes: ShippingQuote[], cep }
+// v2: pesos dos itens são normalizados por item (catálogo em GRAMAS → kg)
+// antes da consolidação do pacote, via normalizeWeightKg.
 
 import { NextResponse } from 'next/server';
-import { calculateShipping } from '@/lib/services/melhorEnvio';
+import {
+  calculateShipping,
+  normalizeWeightKg,
+} from '@/lib/services/melhorEnvio';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface CartItemInput {
-  weight?: number; // kg
+  weight?: number; // gramas (catálogo) ou kg — normalizado automaticamente
   height?: number; // cm
   width?: number; // cm
   length?: number; // cm
@@ -24,9 +29,8 @@ const DEFAULT_PACKAGE = { weight: 0.5, height: 10, width: 20, length: 30 };
 
 /**
  * Consolida os itens do carrinho num único volume:
- * peso soma, altura empilha, largura/comprimento usam o maior.
- * Simplificação razoável para e-commerce pequeno — refinamos se
- * a Adriana reportar divergência de frete.
+ * peso soma (normalizado por item para kg), altura empilha,
+ * largura/comprimento usam o maior.
  */
 function consolidatePackage(items: CartItemInput[]) {
   let weight = 0;
@@ -37,7 +41,10 @@ function consolidatePackage(items: CartItemInput[]) {
 
   for (const item of items) {
     const qty = Math.max(1, item.quantity ?? 1);
-    weight += (item.weight ?? DEFAULT_PACKAGE.weight) * qty;
+    const itemWeightKg = item.weight
+      ? normalizeWeightKg(item.weight)
+      : DEFAULT_PACKAGE.weight;
+    weight += itemWeightKg * qty;
     height += (item.height ?? DEFAULT_PACKAGE.height) * qty;
     width = Math.max(width, item.width ?? DEFAULT_PACKAGE.width);
     length = Math.max(length, item.length ?? DEFAULT_PACKAGE.length);

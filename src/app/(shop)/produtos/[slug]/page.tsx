@@ -2,6 +2,8 @@
 // v2: cálculo de frete real via Melhor Envio (5 opções, somente visualização —
 // cotação automática ao completar o CEP) + scroll para o topo sempre que a
 // página de detalhe abre ou troca de produto (variantes da família).
+// v3: cotação usa peso E dimensões reais do produto (dimensions.length/width/
+// height do catálogo) + atributos name/autoComplete no campo CEP (autofill).
 'use client';
 
 import { useState, useEffect, use } from 'react';
@@ -48,7 +50,8 @@ interface ProductData {
   }[];
   specifications: { key: string; value: string }[];
   stock: number;
-  weight: number;
+  weight: number; // gramas (catálogo)
+  dimensions?: { length: number; width: number; height: number }; // cm
   tags: string[];
   isActive: boolean;
   isFeatured: boolean;
@@ -160,7 +163,8 @@ export default function ProductDetailPage({
   }, [slug, router]);
 
   // ═══ FRETE: cotação automática (Melhor Envio) ao completar o CEP.
-  // Somente visualização — a escolha definitiva acontece no checkout. ═══
+  // Envia peso (gramas — normalizado no servidor) e dimensões reais do
+  // catálogo. Somente visualização — a escolha acontece no checkout. ═══
   const {
     quotes,
     loading: freteLoading,
@@ -168,7 +172,16 @@ export default function ProductDetailPage({
   } = useShippingQuotes({
     cep: cepFrete,
     items: product
-      ? [{ quantity, price: product.price, weight: product.weight }]
+      ? [
+          {
+            quantity,
+            price: product.price,
+            weight: product.weight,
+            length: product.dimensions?.length,
+            width: product.dimensions?.width,
+            height: product.dimensions?.height,
+          },
+        ]
       : [],
     subtotal: product ? product.price * quantity : 0,
   });
@@ -536,6 +549,9 @@ export default function ProductDetailPage({
             <div className='relative w-40'>
               <input
                 type='text'
+                id='cep-frete'
+                name='cep'
+                autoComplete='postal-code'
                 inputMode='numeric'
                 placeholder='Digite seu CEP'
                 maxLength={9}
