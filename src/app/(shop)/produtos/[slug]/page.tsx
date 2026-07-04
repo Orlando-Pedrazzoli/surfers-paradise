@@ -1,9 +1,22 @@
+// 📄 src/app/(shop)/produtos/[slug]/page.tsx
+// v2: cálculo de frete real via Melhor Envio (5 opções, somente visualização —
+// cotação automática ao completar o CEP) + scroll para o topo sempre que a
+// página de detalhe abre ou troca de produto (variantes da família).
 'use client';
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Star, Heart, Share2, ShoppingCart, Check, Truck } from 'lucide-react';
+import {
+  Star,
+  Heart,
+  Share2,
+  ShoppingCart,
+  Check,
+  Truck,
+  Zap,
+  Loader2,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 import {
@@ -14,6 +27,7 @@ import ProductCard from '@/components/product/ProductCard';
 import ProductGallery from '@/components/product/ProductGallery';
 import { useCart } from '@/lib/context/CartProvider';
 import AddToCartModal from '@/components/checkout/AddToCartModal';
+import { useShippingQuotes } from '@/lib/hooks/useShippingQuotes';
 
 interface ProductData {
   _id: string;
@@ -90,6 +104,12 @@ interface RelatedProduct {
   isMainVariant?: boolean;
 }
 
+const maskCep = (v: string) =>
+  v
+    .replace(/\D/g, '')
+    .slice(0, 8)
+    .replace(/(\d{5})(\d)/, '$1-$2');
+
 export default function ProductDetailPage({
   params,
 }: {
@@ -108,6 +128,13 @@ export default function ProductDetailPage({
   >({});
   const [isFavorite, setIsFavorite] = useState(false);
   const [showCartModal, setShowCartModal] = useState(false);
+  const [cepFrete, setCepFrete] = useState('');
+
+  // ═══ SCROLL TOP: sempre que a página de detalhe abre ou troca de produto
+  // (ex: clique numa variante de cor/tamanho da família) ═══
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [slug]);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -131,6 +158,20 @@ export default function ProductDetailPage({
     setLoading(true);
     fetchProduct();
   }, [slug, router]);
+
+  // ═══ FRETE: cotação automática (Melhor Envio) ao completar o CEP.
+  // Somente visualização — a escolha definitiva acontece no checkout. ═══
+  const {
+    quotes,
+    loading: freteLoading,
+    error: freteError,
+  } = useShippingQuotes({
+    cep: cepFrete,
+    items: product
+      ? [{ quantity, price: product.price, weight: product.weight }]
+      : [],
+    subtotal: product ? product.price * quantity : 0,
+  });
 
   if (loading) {
     return (
@@ -484,7 +525,7 @@ export default function ProductDetailPage({
             </div>
           </div>
 
-          {/* Shipping */}
+          {/* ═══ FRETE: cotação real Melhor Envio (somente visualização) ═══ */}
           <div className='border-t pt-4'>
             <div className='flex items-center gap-3 mb-2'>
               <Truck size={18} className='text-gray-500' />
@@ -492,16 +533,22 @@ export default function ProductDetailPage({
                 Frete e prazo
               </span>
             </div>
-            <div className='flex gap-2'>
+            <div className='relative w-40'>
               <input
                 type='text'
-                placeholder='CEP'
+                inputMode='numeric'
+                placeholder='Digite seu CEP'
                 maxLength={9}
-                className='w-32 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                value={cepFrete}
+                onChange={e => setCepFrete(maskCep(e.target.value))}
+                className='w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
               />
-              <button className='px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-md hover:bg-gray-800 transition-colors'>
-                Calcular
-              </button>
+              {freteLoading && (
+                <Loader2
+                  size={16}
+                  className='absolute right-3 top-2.5 animate-spin text-gray-400'
+                />
+              )}
             </div>
             <a
               href='https://buscacepinter.correios.com.br/app/endereco/index.php'
@@ -511,6 +558,64 @@ export default function ProductDetailPage({
             >
               Não sei meu CEP
             </a>
+
+            {freteError && (
+              <p className='mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600'>
+                {freteError}
+              </p>
+            )}
+
+            {quotes.length > 0 && (
+              <div className='mt-3 overflow-hidden rounded-lg border border-gray-200'>
+                {quotes.map((q, i) => (
+                  <div
+                    key={q.id}
+                    className={`flex items-center justify-between px-3 py-2 text-sm ${
+                      i % 2 === 0 ? 'bg-gray-50' : 'bg-white'
+                    }`}
+                  >
+                    <div className='flex flex-wrap items-center gap-1.5'>
+                      <span className='font-medium text-gray-800'>
+                        {q.company} — {q.name}
+                      </span>
+                      {q.cheapest && !q.isFree && (
+                        <span className='rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700'>
+                          Mais barata
+                        </span>
+                      )}
+                      {q.fastest && (
+                        <span className='inline-flex items-center gap-0.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700'>
+                          <Zap className='h-2.5 w-2.5' /> Mais rápida
+                        </span>
+                      )}
+                      <span className='text-xs text-gray-500'>
+                        · até {q.deliveryDays}{' '}
+                        {q.deliveryDays === 1 ? 'dia útil' : 'dias úteis'}
+                      </span>
+                    </div>
+                    <div className='text-right'>
+                      {q.isFree ? (
+                        <>
+                          <span className='mr-1.5 text-xs text-gray-400 line-through'>
+                            {formatCurrency(q.price)}
+                          </span>
+                          <span className='font-bold text-green-600'>
+                            Grátis
+                          </span>
+                        </>
+                      ) : (
+                        <span className='font-bold text-gray-900'>
+                          {formatCurrency(q.price)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <p className='bg-white px-3 py-1.5 text-center text-[11px] text-gray-400'>
+                  Cotação via Melhor Envio · você escolhe o envio no checkout
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Share + Wishlist */}

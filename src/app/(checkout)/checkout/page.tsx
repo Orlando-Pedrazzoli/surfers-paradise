@@ -1,12 +1,21 @@
 // 📄 src/app/(checkout)/checkout/page.tsx
+// v2: frete integrado — cotação automática ao completar o CEP (Melhor Envio),
+// barra de progresso do frete grátis, 5 opções com seleção obrigatória,
+// totais atualizados em tempo real com o frete escolhido.
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useCart } from '@/lib/context/CartProvider';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
-import { ShoppingCart, MapPin, Pencil, Loader2 } from 'lucide-react';
+import { ShoppingCart, MapPin, Pencil, Loader2, Package } from 'lucide-react';
 import PaymentForm from '@/components/checkout/PaymentForm';
+import ShippingOptions from '@/components/checkout/ShippingOptions';
+import FreeShippingProgress from '@/components/checkout/FreeShippingProgress';
+import {
+  useShippingQuotes,
+  type ShippingQuoteOption,
+} from '@/lib/hooks/useShippingQuotes';
 import type { PaymentItem } from '@/lib/types/payment';
 
 const onlyDigits = (s: string) => s.replace(/\D/g, '');
@@ -62,9 +71,55 @@ export default function CheckoutPage() {
   const [addressDone, setAddressDone] = useState(false);
   const [error, setError] = useState('');
   const [cepLoading, setCepLoading] = useState(false);
+  const [selectedShipping, setSelectedShipping] =
+    useState<ShippingQuoteOption | null>(null);
 
   const set = (k: keyof typeof emptyForm, v: string) =>
     setForm(f => ({ ...f, [k]: v }));
+
+  // ─── Cotação automática de frete (dispara quando o CEP completa) ───
+  // Itens do carrinho podem ter dimensões cadastradas no produto; quando
+  // não têm, a API usa o pacote padrão.
+  const quoteItems = useMemo(
+    () =>
+      items.map(i => {
+        const dims = i as Partial<{
+          weight: number;
+          height: number;
+          width: number;
+          length: number;
+        }>;
+        return {
+          quantity: i.quantity,
+          price: i.price,
+          weight: dims.weight,
+          height: dims.height,
+          width: dims.width,
+          length: dims.length,
+        };
+      }),
+    [items],
+  );
+
+  const {
+    quotes,
+    loading: quotesLoading,
+    error: quotesError,
+  } = useShippingQuotes({
+    cep: form.cep,
+    items: quoteItems,
+    subtotal,
+  });
+
+  // Se as cotações mudarem (CEP corrigido, carrinho alterado) e a opção
+  // selecionada não existir mais, limpa a seleção.
+  useEffect(() => {
+    if (selectedShipping && !quotes.some(q => q.id === selectedShipping.id)) {
+      setSelectedShipping(null);
+    }
+  }, [quotes, selectedShipping]);
+
+  const shippingCost = selectedShipping?.finalPrice ?? 0;
 
   async function lookupCep(cep: string) {
     const digits = onlyDigits(cep);
@@ -108,6 +163,10 @@ export default function CheckoutPage() {
     const err = validateAddress();
     if (err) {
       setError(err);
+      return;
+    }
+    if (!selectedShipping) {
+      setError('Selecione o método de envio no Resumo do Pedido.');
       return;
     }
     setError('');
@@ -196,6 +255,22 @@ export default function CheckoutPage() {
                 <p className='text-gray-500'>
                   {form.email} · {form.phone}
                 </p>
+                {selectedShipping && (
+                  <p className='mt-2 flex items-center gap-1.5 text-gray-700'>
+                    <Package size={14} className='text-[#FF6600]' />
+                    {selectedShipping.company} — {selectedShipping.name} · até{' '}
+                    {selectedShipping.deliveryDays} dias úteis ·{' '}
+                    {selectedShipping.isFree ? (
+                      <span className='font-semibold text-green-600'>
+                        Frete grátis
+                      </span>
+                    ) : (
+                      <span className='font-semibold'>
+                        {formatCurrency(selectedShipping.finalPrice)}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
             ) : (
               <div className='space-y-3'>
@@ -295,10 +370,16 @@ export default function CheckoutPage() {
 
                 <button
                   onClick={handleContinue}
+                  disabled={!selectedShipping && quotes.length > 0 && false}
                   className='w-full rounded-md bg-[#FF6600] px-4 py-3 font-bold text-white transition-colors hover:bg-[#e55b00]'
                 >
                   Continuar para pagamento
                 </button>
+                {onlyDigits(form.cep).length === 8 && !selectedShipping && (
+                  <p className='text-center text-xs text-gray-500'>
+                    👉 Selecione o método de envio no Resumo do Pedido
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -306,7 +387,7 @@ export default function CheckoutPage() {
           {/* Pagamento */}
           <div className='bg-white rounded-lg shadow-sm p-6'>
             <h2 className='text-lg font-semibold mb-4'>Forma de Pagamento</h2>
-            {addressDone ? (
+            {addressDone && selectedShipping ? (
               <PaymentForm
                 customer={{
                   name: form.name,
@@ -328,14 +409,20 @@ export default function CheckoutPage() {
                 }}
                 items={paymentItems}
                 subtotal={subtotal}
-                shippingCost={0}
+                shippingCost={shippingCost}
+                shipping={{
+                  method: selectedShipping.name,
+                  carrier: selectedShipping.company,
+                  estimatedDays: selectedShipping.deliveryDays,
+                }}
                 coupon={appliedCoupon?.code}
                 couponDiscount={discount}
                 onOrderCreated={clearCart}
               />
             ) : (
               <p className='text-sm text-gray-500'>
-                Preencha seus dados acima para escolher a forma de pagamento.
+                Preencha seus dados e selecione o envio para escolher a forma de
+                pagamento.
               </p>
             )}
           </div>
@@ -379,6 +466,23 @@ export default function CheckoutPage() {
               ))}
             </div>
 
+            {/* Frete grátis: barra de progresso */}
+            <FreeShippingProgress subtotal={subtotal} />
+
+            {/* Opções de envio (aparecem quando o CEP completa) */}
+            <div>
+              <h3 className='mb-2 text-sm font-semibold text-gray-900'>
+                Método de envio
+              </h3>
+              <ShippingOptions
+                options={quotes}
+                loading={quotesLoading}
+                error={quotesError}
+                selectedId={selectedShipping?.id}
+                onSelect={setSelectedShipping}
+              />
+            </div>
+
             <div className='border-t border-gray-200 pt-4 space-y-2'>
               <div className='flex justify-between text-sm'>
                 <span className='text-gray-600'>
@@ -398,7 +502,21 @@ export default function CheckoutPage() {
               )}
               <div className='flex justify-between text-sm'>
                 <span className='text-gray-600'>Frete</span>
-                <span className='text-gray-400'>A calcular</span>
+                {selectedShipping ? (
+                  selectedShipping.isFree ? (
+                    <span className='font-medium text-green-600'>Grátis</span>
+                  ) : (
+                    <span className='font-medium'>
+                      {formatCurrency(shippingCost)}
+                    </span>
+                  )
+                ) : (
+                  <span className='text-gray-400'>
+                    {onlyDigits(form.cep).length === 8
+                      ? 'Selecione acima'
+                      : 'Informe o CEP'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -406,7 +524,7 @@ export default function CheckoutPage() {
               <div className='flex justify-between items-center'>
                 <span className='text-base font-bold'>Total</span>
                 <span className='text-xl font-black'>
-                  {formatCurrency(total)}
+                  {formatCurrency(total + shippingCost)}
                 </span>
               </div>
               <div className='flex justify-between items-center mt-1'>
@@ -414,7 +532,7 @@ export default function CheckoutPage() {
                   No PIX / Boleto
                 </span>
                 <span className='text-lg font-black text-[#FF6600]'>
-                  {formatCurrency(pixTotal)}
+                  {formatCurrency(pixTotal + shippingCost)}
                 </span>
               </div>
             </div>

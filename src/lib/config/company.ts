@@ -1,3 +1,4 @@
+// 📄 src/lib/config/company.ts
 export const company = {
   name: 'Surfers Paradise',
   legalName: 'OMBAK BARU COMERCIO DE ARTIGOS ESPORTIVOS LTDA',
@@ -31,11 +32,10 @@ export const company = {
     boletoDiscountPercent: 10,
   },
   shipping: {
-    freeShippingMinValue: 299.9,
+    freeShippingMinValue: 399,
     originCep: '04089-014',
   },
 } as const;
-
 /**
  * Endereço formatado em linha única
  * Ex: "Alameda dos Maracatins, 1317 · Indianópolis · São Paulo - SP · CEP 04089-014"
@@ -43,7 +43,6 @@ export const company = {
 export function getFormattedAddress(): string {
   const a = company.address;
   const parts: string[] = [];
-
   if (a.street && a.number) {
     parts.push(
       `${a.street}, ${a.number}${a.complement ? ` · ${a.complement}` : ''}`,
@@ -52,10 +51,8 @@ export function getFormattedAddress(): string {
   if (a.neighborhood) parts.push(a.neighborhood);
   if (a.city && a.state) parts.push(`${a.city} - ${a.state}`);
   if (a.cep) parts.push(`CEP ${a.cep}`);
-
   return parts.join(' · ');
 }
-
 /**
  * Endereço curto (para cupom térmica 80mm)
  * Ex: "Indianópolis · São Paulo - SP"
