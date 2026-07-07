@@ -94,6 +94,13 @@ const orderSchema = new Schema<IOrder>(
       paidAt: { type: Date },
     },
 
+    // ═══ ESTOQUE ═══
+    // Flag de idempotência do decremento de estoque na transição para paid.
+    // NUNCA setar diretamente — usar processOrderStock/restoreOrderStock em
+    // services/inventory.ts, que fazem o claim de forma atômica (à prova de
+    // reenvios simultâneos do webhook Pagar.me).
+    stockProcessed: { type: Boolean, default: false },
+
     // Shipping (opcional — só online)
     shipping: {
       method: { type: String, default: '' },

@@ -1,15 +1,22 @@
 // 📄 src/components/checkout/PixPayment.tsx
+// v2: estado de EXPIRADO — quando o countdown zera, o polling para, o QR
+//     morto some e o cliente vê o botão "Gerar novo PIX" (onExpired volta
+//     à seleção de pagamento). Antes ficava "aguardando" para sempre.
+// v2: polling por orderId (ObjectId, não-enumerável) quando disponível,
+//     com fallback para orderNumber.
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Copy, Check, Loader2, QrCode } from 'lucide-react';
+import { Copy, Check, Loader2, QrCode, Clock } from 'lucide-react';
 
 interface PixPaymentProps {
   qrCode: string; // copia-e-cola
   qrCodeUrl: string; // imagem
   expiresAt?: string;
   orderNumber: string;
+  orderId?: string; // preferido para o polling (não-enumerável)
   onPaid?: () => void;
+  onExpired?: () => void; // volta à seleção de método para gerar novo PIX
 }
 
 export default function PixPayment({
@@ -17,11 +24,15 @@ export default function PixPayment({
   qrCodeUrl,
   expiresAt,
   orderNumber,
+  orderId,
   onPaid,
+  onExpired,
 }: PixPaymentProps) {
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [paid, setPaid] = useState(false);
+
+  const expired = remaining !== null && remaining <= 0 && !paid;
 
   // contagem regressiva
   useEffect(() => {
@@ -34,14 +45,13 @@ export default function PixPayment({
     return () => clearInterval(id);
   }, [expiresAt]);
 
-  // polling de confirmação
+  // polling de confirmação (para quando paga OU quando expira)
   useEffect(() => {
-    if (paid) return;
+    if (paid || expired) return;
+    const query = orderId ? `orderId=${orderId}` : `orderNumber=${orderNumber}`;
     const id = setInterval(async () => {
       try {
-        const res = await fetch(
-          `/api/payments/status?orderNumber=${orderNumber}`,
-        );
+        const res = await fetch(`/api/payments/status?${query}`);
         const data = await res.json();
         if (data.paymentStatus === 'paid') {
           setPaid(true);
@@ -53,7 +63,7 @@ export default function PixPayment({
       }
     }, 5000);
     return () => clearInterval(id);
-  }, [orderNumber, paid, onPaid]);
+  }, [orderId, orderNumber, paid, expired, onPaid]);
 
   const copy = async () => {
     await navigator.clipboard.writeText(qrCode);
@@ -71,6 +81,28 @@ export default function PixPayment({
       <div className='rounded-lg bg-green-50 p-6 text-center'>
         <Check className='mx-auto mb-2 h-10 w-10 text-green-600' />
         <p className='font-semibold text-green-700'>Pagamento confirmado!</p>
+      </div>
+    );
+  }
+
+  if (expired) {
+    return (
+      <div className='space-y-4 rounded-lg bg-amber-50 p-6 text-center'>
+        <Clock className='mx-auto h-10 w-10 text-amber-500' />
+        <div>
+          <p className='font-semibold text-amber-700'>Este PIX expirou</p>
+          <p className='mt-1 text-sm text-amber-600'>
+            Não se preocupe — nada foi cobrado. Gere um novo código para
+            concluir a compra.
+          </p>
+        </div>
+        <button
+          type='button'
+          onClick={onExpired}
+          className='w-full rounded-lg bg-[#FF6600] px-4 py-3 font-semibold text-white transition hover:bg-[#e55b00]'
+        >
+          Gerar novo PIX
+        </button>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 // 📄 src/lib/services/checkout.ts
-// Orquestra o checkout online: valida → cupom server-side → totais →
-// antifraude → cria pedido pending → cria pedido na Pagar.me → atualiza status.
+// Orquestra o checkout online: valida → REVALIDA PREÇOS NO BANCO → cupom
+// server-side → totais → antifraude → cria pedido pending → cria pedido na
+// Pagar.me → atualiza status.
 //
 // v2: desconto (cupom + método) distribuído proporcionalmente nos itens
 // enviados à Pagar.me — a Orders API V5 não tem campo de desconto e cobra
@@ -9,11 +10,22 @@
 // v3: cupom revalidado e RECALCULADO server-side contra o model Coupon —
 // o couponDiscount enviado pelo cliente é ignorado (anti-tampering).
 // v3: usedCount incrementado atomicamente após sucesso no gateway.
+// v4: PREÇOS revalidados contra o Product no banco — o price enviado pelo
+// cliente é usado apenas para detectar carrinho desatualizado (409 com
+// preços novos); o valor cobrado vem SEMPRE do banco. Anti-tampering.
+// v4: validação de ESTOQUE e disponibilidade (isActive + isPublishedOnline)
+// antes de criar o pedido. (Decremento idempotente na transição paid é
+// feito à parte — ver webhook.)
+// v4: buildPagarmeItems com guarda contra último item <= 0 centavos em
+// descontos agressivos (redistribui dos itens anteriores).
+// v5: decrementa estoque no caminho de cartão aprovado na hora via
+// processOrderStock (idempotente — o webhook cobre falhas desta chamada).
 
 import { z } from 'zod';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
 import Coupon from '@/lib/models/Coupon';
+import Product from '@/lib/models/Product';
 import { company } from '@/lib/config/company';
 import {
   createOrder as createPagarmeOrder,
@@ -22,6 +34,7 @@ import {
 } from '@/lib/services/pagarme';
 import { checkFraud } from '@/lib/services/fraudProtection';
 import { sendOrderConfirmation } from '@/lib/services/email';
+import { processOrderStock } from '@/lib/services/inventory';
 
 export type PaymentMethod = 'credit_card' | 'pix' | 'boleto';
 
@@ -33,7 +46,7 @@ const itemSchema = z.object({
   image: z.string().optional().default(''),
   variant: z.string().optional().default(''),
   quantity: z.number().int().positive(),
-  price: z.number().nonnegative(), // reais, unitário CHEIO
+  price: z.number().nonnegative(), // reais — usado SÓ para detectar carrinho stale
 });
 
 const addressSchema = z.object({
@@ -85,6 +98,11 @@ export interface CheckoutResult {
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const toCents = (v: number) => Math.round(v * 100);
 
+type CartItem = z.infer<typeof itemSchema>;
+
+/** Item do carrinho com o preço-verdade do banco aplicado. */
+type PricedItem = CartItem & { unitPrice: number };
+
 function mapAddress(a: z.infer<typeof addressSchema>): PagarmeAddressInput {
   return {
     zipCode: a.cep,
@@ -96,6 +114,143 @@ function mapAddress(a: z.infer<typeof addressSchema>): PagarmeAddressInput {
     state: a.state,
     country: 'BR',
   };
+}
+
+/**
+ * Preço efetivo cobrado por unidade.
+ * Regra atual do catálogo: `price` É o preço de venda final;
+ * `compareAtPrice` é o "de" riscado e `isOnSale`/`salePercentage` são
+ * flags de exibição. Se essa regra mudar, ajuste APENAS aqui.
+ */
+function getEffectivePrice(product: { price: number }): number {
+  return product.price;
+}
+
+/**
+ * Revalida cada item do carrinho contra o Product no banco:
+ * - produto precisa existir, estar ativo e publicado online;
+ * - estoque precisa cobrir a quantidade;
+ * - o preço cobrado vem do banco (getEffectivePrice).
+ *
+ * Se algum preço do cliente divergir do banco (> 1 centavo), retorna
+ * staleCart com os preços atualizados — o frontend deve recarregar o
+ * carrinho e o cliente reconfirmar. NUNCA cobramos silenciosamente um
+ * valor diferente do que o cliente viu (nem a mais, nem a menos).
+ */
+async function revalidateItems(
+  items: CartItem[],
+): Promise<
+  | { ok: true; items: PricedItem[] }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  // Busca em lote: por _id quando houver, senão por SKU
+  const ids = items.map(i => i.productId).filter(Boolean) as string[];
+  const skus = items.filter(i => !i.productId && i.sku).map(i => i.sku);
+
+  const query: Record<string, unknown>[] = [];
+  if (ids.length) query.push({ _id: { $in: ids } });
+  if (skus.length) query.push({ sku: { $in: skus } });
+  if (!query.length) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: 'Itens do carrinho sem identificação de produto.' },
+    };
+  }
+
+  let products: any[];
+  try {
+    products = await Product.find({ $or: query })
+      .select(
+        '_id sku name price compareAtPrice stock isActive isPublishedOnline',
+      )
+      .lean();
+  } catch {
+    // ObjectId inválido no productId → cast error do Mongoose
+    return {
+      ok: false,
+      status: 400,
+      body: { error: 'Identificador de produto inválido no carrinho.' },
+    };
+  }
+
+  const byId = new Map(products.map(p => [String(p._id), p]));
+  const bySku = new Map(products.map(p => [p.sku, p]));
+
+  const priced: PricedItem[] = [];
+  const updatedPrices: { productId?: string; sku?: string; price: number }[] =
+    [];
+  let stale = false;
+
+  for (const item of items) {
+    const product =
+      (item.productId && byId.get(item.productId)) ||
+      (item.sku && bySku.get(item.sku)) ||
+      null;
+
+    if (!product) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          error: `Produto "${item.name}" não está mais disponível.`,
+          item: { productId: item.productId, sku: item.sku },
+        },
+      };
+    }
+
+    if (!product.isActive || !product.isPublishedOnline) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          error: `Produto "${product.name}" não está mais disponível para venda online.`,
+          item: { productId: String(product._id), sku: product.sku },
+        },
+      };
+    }
+
+    if ((product.stock ?? 0) < item.quantity) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          error:
+            (product.stock ?? 0) > 0
+              ? `Estoque insuficiente para "${product.name}" (disponível: ${product.stock}).`
+              : `"${product.name}" está esgotado.`,
+          item: { productId: String(product._id), sku: product.sku },
+          availableStock: product.stock ?? 0,
+        },
+      };
+    }
+
+    const unitPrice = round2(getEffectivePrice(product));
+    if (Math.abs(unitPrice - item.price) > 0.01) {
+      stale = true;
+    }
+    updatedPrices.push({
+      productId: String(product._id),
+      sku: product.sku,
+      price: unitPrice,
+    });
+    priced.push({ ...item, unitPrice });
+  }
+
+  if (stale) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error:
+          'Os preços de alguns itens foram atualizados. Revise o carrinho e confirme novamente.',
+        code: 'PRICES_CHANGED',
+        updatedPrices,
+      },
+    };
+  }
+
+  return { ok: true, items: priced };
 }
 
 /**
@@ -146,35 +301,60 @@ async function resolveCoupon(
  * em CENTAVOS, garantindo que a soma feche exatamente com o valor esperado.
  * Cada linha vira um item Pagar.me com quantity 1 e amount = total da linha
  * já descontado (a quantidade vai no nome, ex: "Deck Frontal (x2)").
+ *
+ * v4: guarda contra remainder <= 0 no último item (desconto agressivo +
+ * arredondamento dos anteriores para cima). Se acontecer, o último item
+ * fica com 1 centavo e a diferença é redistribuída subtraindo dos itens
+ * anteriores (maiores primeiro), mantendo todos >= 1 e a soma exata.
  */
 function buildPagarmeItems(
-  items: z.infer<typeof itemSchema>[],
+  items: PricedItem[],
   subtotal: number,
   targetTotalCents: number,
 ) {
-  const lineTotalsCents = items.map(i => toCents(i.price * i.quantity));
+  const lineTotalsCents = items.map(i => toCents(i.unitPrice * i.quantity));
   const subtotalCents = toCents(subtotal);
 
+  const cents: number[] = new Array(items.length);
   let allocated = 0;
-  return items.map((item, idx) => {
-    const isLast = idx === items.length - 1;
-    let cents: number;
-    if (isLast) {
-      cents = targetTotalCents - allocated; // remainder fecha a conta
+  for (let idx = 0; idx < items.length; idx++) {
+    if (idx === items.length - 1) {
+      cents[idx] = targetTotalCents - allocated; // remainder fecha a conta
     } else {
-      cents = Math.round(
+      let c = Math.round(
         (lineTotalsCents[idx] / subtotalCents) * targetTotalCents,
       );
-      cents = Math.max(1, cents); // Pagar.me exige amount >= 1
-      allocated += cents;
+      c = Math.max(1, c); // Pagar.me exige amount >= 1
+      cents[idx] = c;
+      allocated += c;
     }
-    return {
-      name: item.quantity > 1 ? `${item.name} (x${item.quantity})` : item.name,
-      quantity: 1,
-      amount: cents,
-      code: item.sku || undefined,
-    };
-  });
+  }
+
+  // Guarda: último item precisa ser >= 1 centavo
+  if (cents[cents.length - 1] < 1) {
+    let deficit = 1 - cents[cents.length - 1];
+    cents[cents.length - 1] = 1;
+    // Subtrai o deficit dos itens anteriores, dos maiores para os menores
+    const order = cents
+      .map((c, i) => ({ c, i }))
+      .slice(0, -1)
+      .sort((a, b) => b.c - a.c);
+    for (const { i } of order) {
+      if (deficit <= 0) break;
+      const take = Math.min(deficit, cents[i] - 1);
+      cents[i] -= take;
+      deficit -= take;
+    }
+    // Se ainda houver deficit, o total é impraticável (todos a 1 centavo)
+    // — processCheckout já bloqueia productsTotal <= 0 antes de chegar aqui.
+  }
+
+  return items.map((item, idx) => ({
+    name: item.quantity > 1 ? `${item.name} (x${item.quantity})` : item.name,
+    quantity: 1,
+    amount: cents[idx],
+    code: item.sku || undefined,
+  }));
 }
 
 export async function processCheckout(
@@ -199,11 +379,20 @@ export async function processCheckout(
 
   await connectDB();
 
-  // 1. Totais 100% server-side (NUNCA confie no total do cliente)
-  // ⚠️ HARDENING recomendado: revalidar i.price contra o Product no banco.
-  const subtotal = input.items.reduce((s, i) => s + i.price * i.quantity, 0);
+  // 1. Revalidação server-side dos itens: existência, disponibilidade,
+  // estoque e PREÇO-VERDADE do banco. O price do cliente é ignorado para
+  // cobrança (anti-tampering) — divergência devolve 409 pro carrinho
+  // recarregar.
+  const revalidated = await revalidateItems(input.items);
+  if (!revalidated.ok) {
+    return { status: revalidated.status, body: revalidated.body };
+  }
+  const items = revalidated.items;
 
-  // 1a. Cupom: revalidado e recalculado no banco — valor do cliente ignorado
+  // 1a. Totais 100% server-side, sobre os preços do banco
+  const subtotal = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+
+  // 1b. Cupom: revalidado e recalculado no banco — valor do cliente ignorado
   const couponResult = await resolveCoupon(input.coupon, subtotal);
   if (couponResult.error) {
     return { status: 400, body: { error: couponResult.error } };
@@ -256,7 +445,7 @@ export async function processCheckout(
     };
   }
 
-  // 3. Cria o pedido pendente
+  // 3. Cria o pedido pendente (com os preços do BANCO no snapshot)
   const order = await Order.create({
     channel: 'online',
     user: input.userId || null,
@@ -267,7 +456,7 @@ export async function processCheckout(
       phone: input.customer.phone,
       email: input.customer.email,
     },
-    items: input.items.map(i => ({
+    items: items.map(i => ({
       product: i.productId || undefined,
       sku: i.sku,
       name: i.name,
@@ -275,7 +464,7 @@ export async function processCheckout(
       image: i.image,
       variant: i.variant,
       quantity: i.quantity,
-      price: i.price,
+      price: i.unitPrice,
     })),
     subtotal: round2(subtotal),
     shippingCost: input.shippingCost,
@@ -317,7 +506,7 @@ export async function processCheckout(
       billingAddress: mapAddress(input.shippingAddress),
       shippingAddress: mapAddress(input.shippingAddress),
       shippingAmount: toCents(input.shippingCost),
-      items: buildPagarmeItems(input.items, subtotal, toCents(productsTotal)),
+      items: buildPagarmeItems(items, subtotal, toCents(productsTotal)),
       payment,
     });
 
@@ -359,9 +548,13 @@ export async function processCheckout(
 
     await order.save();
 
-    // 6. Pagamento aprovado na hora (cartão) → confirma por e-mail.
-    // PIX/boleto pagos depois são confirmados pelo webhook.
+    // 6. Pagamento aprovado na hora (cartão) → decrementa estoque e
+    // confirma por e-mail. PIX/boleto pagos depois passam pelo webhook.
+    // processOrderStock é idempotente (claim atômico): se esta chamada
+    // falhar, o webhook order.paid que chega na sequência reprocessa.
     if (order.payment.status === 'paid') {
+      await processOrderStock(order._id);
+
       const email = order.customerSnapshot?.email || order.guestEmail;
       if (email) {
         sendOrderConfirmation(email, order.orderNumber).catch(e =>

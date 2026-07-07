@@ -1,7 +1,28 @@
+// 📄 src/app/api/auth/register/route.ts
+// v2: CPF validado por dígitos verificadores (mesma regra do checkout).
+// v2: dispara o OTP de verificação automaticamente após criar a conta —
+//     o frontend redireciona para /verificar-email, onde o verify marca
+//     isEmailVerified e faz o claim dos pedidos guest (ver /api/otp).
+
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import connectDB from '@/lib/db/connect';
 import User from '@/lib/models/User';
+import { createAndSendOtp } from '@/lib/services/otp';
+
+function isValidCpf(raw: string): boolean {
+  const cpf = (raw || '').replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const factor of [10, 11]) {
+    let sum = 0;
+    for (let i = 0; i < factor - 1; i++) {
+      sum += parseInt(cpf[i]) * (factor - i);
+    }
+    const digit = ((sum * 10) % 11) % 10;
+    if (digit !== parseInt(cpf[factor - 1])) return false;
+  }
+  return true;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +52,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return NextResponse.json(
         { success: false, error: 'Este email já está cadastrado' },
@@ -39,22 +62,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate CPF format if provided
-    if (cpf) {
-      const cleanCpf = cpf.replace(/\D/g, '');
-      if (cleanCpf.length !== 11) {
-        return NextResponse.json(
-          { success: false, error: 'CPF inválido' },
-          { status: 400 },
-        );
-      }
+    // CPF: dígitos verificadores (não só comprimento)
+    if (cpf && !isValidCpf(cpf)) {
+      return NextResponse.json(
+        { success: false, error: 'CPF inválido' },
+        { status: 400 },
+      );
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await User.create({
       name: name.trim(),
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       password: hashedPassword,
       cpf: cpf ? cpf.replace(/\D/g, '') : '',
       phone: phone || '',
@@ -62,9 +82,16 @@ export async function POST(request: NextRequest) {
       isEmailVerified: false,
     });
 
+    // Dispara o OTP de verificação (fire-and-forget: se o e-mail falhar,
+    // a conta existe e a página /verificar-email tem botão de reenvio).
+    createAndSendOtp(normalizedEmail).catch(e =>
+      console.error('[Register] falha ao enviar OTP:', normalizedEmail, e),
+    );
+
     return NextResponse.json(
       {
         success: true,
+        requiresVerification: true,
         user: {
           id: user._id.toString(),
           name: user.name,

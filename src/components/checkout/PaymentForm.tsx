@@ -1,4 +1,12 @@
 // 📄 src/components/checkout/PaymentForm.tsx
+// v2: trata o 409 PRICES_CHANGED do backend (preços revalidados no banco) —
+//     mostra a mensagem do servidor e notifica onPricesChanged para o
+//     carrinho sincronizar os valores novos.
+// v2: cartão recusado (402, paymentStatus 'failed') ganha mensagem específica
+//     — o cliente entende que é o cartão, não um bug do site.
+// v2: orderId propagado ao PixPayment para o polling de status usar o
+//     ObjectId (não-enumerável) em vez do orderNumber.
+// v2: guarda contra duplo submit no postCheckout.
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
@@ -20,6 +28,20 @@ import type {
 
 type Method = 'credit_card' | 'pix' | 'boleto';
 
+export interface UpdatedPrice {
+  productId?: string;
+  sku?: string;
+  price: number;
+}
+
+/** Campos extras do backend v4/v5 que podem não estar no CheckoutResponse. */
+type CheckoutResponseExt = CheckoutResponse & {
+  code?: string;
+  updatedPrices?: UpdatedPrice[];
+  paymentStatus?: string;
+  orderId?: string;
+};
+
 interface PaymentFormProps {
   customer: PaymentCustomer;
   shippingAddress: PaymentAddress;
@@ -31,6 +53,9 @@ interface PaymentFormProps {
   couponDiscount?: number;
   userId?: string;
   onOrderCreated?: (orderNumber: string) => void;
+  /** Chamado quando o servidor detecta preços desatualizados no carrinho
+   *  (409 PRICES_CHANGED). Use para sincronizar o CartProvider. */
+  onPricesChanged?: (updatedPrices: UpdatedPrice[]) => void;
 }
 
 const brl = (v: number) =>
@@ -47,14 +72,15 @@ export default function PaymentForm({
   couponDiscount = 0,
   userId,
   onOrderCreated,
+  onPricesChanged,
 }: PaymentFormProps) {
   const router = useRouter();
   const [method, setMethod] = useState<Method>('credit_card');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [pix, setPix] = useState<(PixResult & { orderNumber: string }) | null>(
-    null,
-  );
+  const [pix, setPix] = useState<
+    (PixResult & { orderNumber: string; orderId?: string }) | null
+  >(null);
   const [boleto, setBoleto] = useState<
     (BoletoResult & { orderNumber: string }) | null
   >(null);
@@ -85,7 +111,8 @@ export default function PaymentForm({
   async function postCheckout(
     endpoint: string,
     extra: Record<string, unknown> = {},
-  ) {
+  ): Promise<CheckoutResponseExt | null> {
+    if (submitting) return null; // guarda contra duplo clique
     setError('');
     setSubmitting(true);
     try {
@@ -94,9 +121,29 @@ export default function PaymentForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...basePayload, ...extra }),
       });
-      const data: CheckoutResponse = await res.json();
+      const data: CheckoutResponseExt = await res.json();
+
+      // Carrinho com preços desatualizados: servidor recusa e devolve os
+      // valores novos — sincroniza o carrinho e pede reconfirmação.
+      if (res.status === 409 && data.code === 'PRICES_CHANGED') {
+        if (data.updatedPrices) onPricesChanged?.(data.updatedPrices);
+        setError(
+          data.error ||
+            'Os preços foram atualizados. Revise o carrinho e confirme novamente.',
+        );
+        return null;
+      }
+
       if (!data.success) {
-        setError(data.error || 'Não foi possível processar o pagamento.');
+        // 402 do cartão recusado vem sem campo error — mensagem específica
+        // para o cliente entender que é o cartão, não o site.
+        if (data.paymentStatus === 'failed') {
+          setError(
+            'Pagamento não autorizado pelo emissor do cartão. Confira os dados ou tente outro cartão.',
+          );
+        } else {
+          setError(data.error || 'Não foi possível processar o pagamento.');
+        }
         return null;
       }
       return data;
@@ -127,8 +174,13 @@ export default function PaymentForm({
 
   async function handlePix() {
     const data = await postCheckout('/api/payments/pix');
-    if (data?.pix && data.orderNumber)
-      setPix({ ...data.pix, orderNumber: data.orderNumber });
+    if (data?.pix && data.orderNumber) {
+      setPix({
+        ...data.pix,
+        orderNumber: data.orderNumber,
+        orderId: data.orderId,
+      });
+    }
   }
 
   async function handleBoleto() {
@@ -145,6 +197,7 @@ export default function PaymentForm({
           onOrderCreated?.(pix.orderNumber);
           router.push(`/pedido-confirmado?pedido=${pix.orderNumber}`);
         }}
+        onExpired={() => setPix(null)} // volta à seleção para gerar novo PIX
       />
     );
   }

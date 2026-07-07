@@ -2,6 +2,11 @@
 // Cliente Pagar.me API V5 — Surfers Paradise
 // Auth: HTTP Basic (User = Secret Key, Password = vazio). Endpoint único teste/produção;
 // o ambiente é definido pelo prefixo da chave (sk_test_ = sandbox, sk_ = produção).
+//
+// v4: pagarmeRequest com parse seguro (resposta não-JSON vira PagarmeError 502,
+//     não exceção genérica).
+// v4: validateWebhookAuth FAIL-CLOSED em produção — sem PAGARME_WEBHOOK_USER/PASS
+//     configurados, webhook é rejeitado (em dev continua liberado para testes locais).
 
 import crypto from 'crypto';
 
@@ -203,7 +208,23 @@ async function pagarmeRequest<T>(
   });
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+
+  // Parse seguro: instabilidade no gateway/proxy pode devolver HTML.
+  // Sem isto, JSON.parse estoura uma exceção genérica (500 cru pro cliente)
+  // em vez de um PagarmeError tratável com mensagem amigável.
+  let data: Record<string, any> = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new PagarmeError(
+        'Resposta inválida da Pagar.me. Tente novamente em instantes.',
+        res.status || 502,
+        undefined,
+        text.slice(0, 500),
+      );
+    }
+  }
 
   if (!res.ok) {
     const message =
@@ -311,9 +332,17 @@ export async function cancelCharge(
 
 /**
  * Valida o Basic Auth que a Pagar.me envia no webhook.
- * Na V5 a segurança do webhook é Basic Auth (opcional) configurado no dashboard.
- * Defina PAGARME_WEBHOOK_USER / PAGARME_WEBHOOK_PASS no .env e os MESMOS valores no painel.
- * Se não configurar auth no painel, retorna true (mas configurar é fortemente recomendado).
+ *
+ * FAIL-CLOSED em produção: se PAGARME_WEBHOOK_USER/PASS não estiverem
+ * configurados no ambiente, o webhook é REJEITADO. Sem isto, esquecer as
+ * vars na Vercel deixaria qualquer pessoa marcar pedidos como pagos com um
+ * simples POST { type: "order.paid", data: { code: "SP-XXXX" } }.
+ *
+ * Em desenvolvimento (NODE_ENV !== 'production') continua liberado quando
+ * não configurado, para facilitar testes locais com o dashboard sandbox.
+ *
+ * Os MESMOS valores devem estar cadastrados na autenticação Basic do
+ * webhook no painel Pagar.me (Configurações → Webhooks).
  */
 export function validateWebhookAuth(
   authorizationHeader: string | null,
@@ -321,7 +350,19 @@ export function validateWebhookAuth(
   const user = process.env.PAGARME_WEBHOOK_USER;
   const pass = process.env.PAGARME_WEBHOOK_PASS;
 
-  if (!user && !pass) return true; // nada configurado no painel → nada a validar
+  if (!user || !pass) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        '[Pagar.me Webhook] PAGARME_WEBHOOK_USER/PASS ausentes em produção — webhook rejeitado (fail-closed).',
+      );
+      return false;
+    }
+    console.warn(
+      '[Pagar.me Webhook] Auth não configurada — liberado apenas em desenvolvimento.',
+    );
+    return true;
+  }
+
   if (!authorizationHeader?.startsWith('Basic ')) return false;
 
   const expected = Buffer.from(`${user}:${pass}`).toString('base64');

@@ -1,28 +1,44 @@
-import mongoose, { Schema, Model, Types } from 'mongoose';
+// 📄 src/lib/models/OtpVerification.ts
+// Códigos OTP de verificação de e-mail — Surfers Paradise
+// Segurança: armazena apenas o HASH do código (sha256 + segredo do servidor);
+// vazamento do banco não expõe códigos válidos. TTL index remove docs
+// expirados automaticamente. Um doc por e-mail (upsert no reenvio).
+
+import mongoose, { Schema, Model } from 'mongoose';
 
 export interface IOtpVerification {
-  _id: Types.ObjectId;
+  _id: mongoose.Types.ObjectId;
   email: string;
-  otp: string;
+  codeHash: string;
   expiresAt: Date;
-  verified: boolean;
+  attempts: number; // tentativas de verificação erradas
+  lastSentAt: Date; // cooldown de reenvio
   createdAt: Date;
+  updatedAt: Date;
 }
 
-const otpSchema = new Schema<IOtpVerification>(
+const otpVerificationSchema = new Schema<IOtpVerification>(
   {
-    email: { type: String, required: true },
-    otp: { type: String, required: true },
+    email: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      unique: true, // um OTP ativo por e-mail (reenvio substitui)
+    },
+    codeHash: { type: String, required: true },
     expiresAt: { type: Date, required: true },
-    verified: { type: Boolean, default: false },
+    attempts: { type: Number, default: 0 },
+    lastSentAt: { type: Date, required: true },
   },
   { timestamps: true },
 );
 
-otpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// TTL: o MongoDB apaga o doc quando expiresAt passa (varredura ~1 min)
+otpVerificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const OtpVerification: Model<IOtpVerification> =
   mongoose.models.OtpVerification ||
-  mongoose.model<IOtpVerification>('OtpVerification', otpSchema);
+  mongoose.model<IOtpVerification>('OtpVerification', otpVerificationSchema);
 
 export default OtpVerification;

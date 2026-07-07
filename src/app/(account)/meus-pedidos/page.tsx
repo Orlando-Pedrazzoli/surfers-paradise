@@ -1,17 +1,29 @@
+// 📄 src/app/(account)/meus-pedidos/page.tsx
+// v2: consome GET /api/orders (a rota /api/orders/my-orders NUNCA existiu —
+//     a listagem estava quebrada). O backend agora força o escopo ao dono
+//     para clientes, então a chamada é direta.
+// v2: itemCount derivado de items (não é campo da API).
+// v2: card clicável → /meus-pedidos/[id] (detalhe).
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Package, ShoppingCart } from 'lucide-react';
+import { Package, ShoppingCart, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
+
+interface OrderItem {
+  name: string;
+  quantity: number;
+  image?: string;
+}
 
 interface Order {
   _id: string;
   orderNumber: string;
   status: string;
   total: number;
-  itemCount: number;
+  items: OrderItem[];
   createdAt: string;
 }
 
@@ -35,7 +47,7 @@ export default function MeusPedidosPage() {
   useEffect(() => {
     const fetchOrders = async () => {
       try {
-        const res = await fetch('/api/orders/my-orders');
+        const res = await fetch('/api/orders?limit=50');
         const data = await res.json();
         if (data.success) setOrders(data.orders);
       } catch {
@@ -65,6 +77,14 @@ export default function MeusPedidosPage() {
           </h2>
           <p className='text-sm text-gray-500 mb-6'>
             Quando você fizer sua primeira compra, os pedidos aparecerão aqui.
+            Comprou sem estar logado? Verifique seu e-mail em{' '}
+            <Link
+              href='/verificar-email'
+              className='text-[#FF6600] hover:underline'
+            >
+              verificar e-mail
+            </Link>{' '}
+            para vincular os pedidos à sua conta.
           </p>
           <Link
             href='/produtos'
@@ -80,10 +100,15 @@ export default function MeusPedidosPage() {
               label: order.status,
               color: 'bg-gray-100 text-gray-800',
             };
+            const itemCount = (order.items || []).reduce(
+              (s, i) => s + (i.quantity || 0),
+              0,
+            );
             return (
-              <div
+              <Link
                 key={order._id}
-                className='bg-white rounded-lg shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-4'
+                href={`/meus-pedidos/${order._id}`}
+                className='bg-white rounded-lg shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-4 transition hover:shadow-md'
               >
                 <div className='flex items-center gap-3 flex-1'>
                   <div className='w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center'>
@@ -95,8 +120,7 @@ export default function MeusPedidosPage() {
                     </p>
                     <p className='text-xs text-gray-500'>
                       {new Date(order.createdAt).toLocaleDateString('pt-BR')} —{' '}
-                      {order.itemCount}{' '}
-                      {order.itemCount === 1 ? 'item' : 'itens'}
+                      {itemCount} {itemCount === 1 ? 'item' : 'itens'}
                     </p>
                   </div>
                 </div>
@@ -109,8 +133,9 @@ export default function MeusPedidosPage() {
                   <p className='text-sm font-bold text-gray-900'>
                     {formatCurrency(order.total)}
                   </p>
+                  <ChevronRight size={16} className='text-gray-300' />
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

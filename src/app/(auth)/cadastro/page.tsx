@@ -1,3 +1,8 @@
+// 📄 src/app/(auth)/cadastro/page.tsx
+// v2: após o cadastro, redireciona para /verificar-email?email=... — o
+//     register agora dispara o OTP automaticamente, e é a verificação que
+//     vincula pedidos feitos como guest à conta nova. Auto-login mantido
+//     (a verificação não bloqueia o uso, só destrava o claim).
 'use client';
 
 import { useState } from 'react';
@@ -71,20 +76,19 @@ export default function CadastroPage() {
         return;
       }
 
-      // Auto-login after registration
-      const signInResult = await signIn('credentials', {
+      // Auto-login (a verificação de e-mail não bloqueia o uso)
+      await signIn('credentials', {
         email: form.email,
         password: form.password,
         redirect: false,
       });
 
-      if (signInResult?.error) {
-        toast.success('Conta criada! Faça login para continuar.');
-        router.push('/login');
-      } else {
-        toast.success('Conta criada com sucesso! Bem-vindo!');
-        router.push('/minha-conta');
-      }
+      // O register já disparou o código OTP — segue para a verificação,
+      // que confirma o e-mail e vincula pedidos feitos como guest.
+      toast.success('Conta criada! Enviamos um código para o seu e-mail.');
+      router.push(
+        `/verificar-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}`,
+      );
     } catch {
       toast.error('Erro ao criar conta');
     } finally {

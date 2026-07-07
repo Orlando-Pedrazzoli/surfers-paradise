@@ -1,3 +1,14 @@
+// 📄 src/app/api/orders/route.ts
+// v2: AUTENTICAÇÃO — GET bifurcado: admin lista tudo com filtros; cliente
+//     logado vê APENAS os próprios pedidos (filtro user forçado, query
+//     string não sobrepõe). POST é admin-only: é a rota do POS/criação
+//     manual, que marca pagamento como paid e decrementa estoque — aberta,
+//     permitia a qualquer um criar vendas falsas e drenar estoque.
+//     (O checkout online NÃO passa por aqui — usa /api/payments/*.)
+// v2: pedido POS criado com stockProcessed: true — o decremento acontece na
+//     transação desta rota, e o flag harmoniza com o inventory.ts para o
+//     cancel/refund devolver estoque exatamente uma vez.
+
 import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/db/connect';
@@ -6,6 +17,7 @@ import Product from '@/lib/models/Product';
 import User from '@/lib/models/User';
 import Coupon from '@/lib/models/Coupon';
 import { OrderChannel, PaymentMethod } from '@/lib/types/order';
+import { requireAuthGuard, requireAdminGuard } from '@/lib/auth/guards';
 
 const _deps = [Product, User, Coupon];
 void _deps;
@@ -50,10 +62,17 @@ function round2(v: number): number {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// GET — Listar pedidos com filtros
+// GET — Listar pedidos
+//   admin   → todos, com filtros completos (painel)
+//   cliente → apenas os próprios (área do cliente); filtros de busca/canal
+//             ignorados, status permitido
 // ═══════════════════════════════════════════════════════════════
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireAuthGuard();
+    if (guard.response) return guard.response;
+    const isAdmin = guard.role === 'admin';
+
     await connectDB();
 
     const { searchParams } = new URL(request.url);
@@ -61,34 +80,42 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
 
-    const channel = searchParams.get('channel');
     const status = searchParams.get('status');
-    const paymentStatus = searchParams.get('paymentStatus');
-    const search = searchParams.get('search') || '';
-    const fromDate = searchParams.get('fromDate');
-    const toDate = searchParams.get('toDate');
-
     const filter: Record<string, unknown> = {};
 
-    if (channel) filter.channel = channel;
+    if (isAdmin) {
+      // Filtros completos do painel
+      const channel = searchParams.get('channel');
+      const paymentStatus = searchParams.get('paymentStatus');
+      const search = searchParams.get('search') || '';
+      const fromDate = searchParams.get('fromDate');
+      const toDate = searchParams.get('toDate');
+
+      if (channel) filter.channel = channel;
+      if (paymentStatus) filter['payment.status'] = paymentStatus;
+
+      if (search) {
+        filter.$or = [
+          { orderNumber: { $regex: search, $options: 'i' } },
+          { 'customerSnapshot.name': { $regex: search, $options: 'i' } },
+          { 'customerSnapshot.cpf': { $regex: search, $options: 'i' } },
+          { 'customerSnapshot.email': { $regex: search, $options: 'i' } },
+        ];
+      }
+
+      if (fromDate || toDate) {
+        const dateFilter: Record<string, Date> = {};
+        if (fromDate) dateFilter.$gte = new Date(fromDate);
+        if (toDate) dateFilter.$lte = new Date(toDate);
+        filter.createdAt = dateFilter;
+      }
+    } else {
+      // Cliente: escopo FORÇADO aos próprios pedidos — nada do query
+      // string pode ampliar isso.
+      filter.user = guard.userId;
+    }
+
     if (status) filter.status = status;
-    if (paymentStatus) filter['payment.status'] = paymentStatus;
-
-    if (search) {
-      filter.$or = [
-        { orderNumber: { $regex: search, $options: 'i' } },
-        { 'customerSnapshot.name': { $regex: search, $options: 'i' } },
-        { 'customerSnapshot.cpf': { $regex: search, $options: 'i' } },
-        { 'customerSnapshot.email': { $regex: search, $options: 'i' } },
-      ];
-    }
-
-    if (fromDate || toDate) {
-      const dateFilter: Record<string, Date> = {};
-      if (fromDate) dateFilter.$gte = new Date(fromDate);
-      if (toDate) dateFilter.$lte = new Date(toDate);
-      filter.createdAt = dateFilter;
-    }
 
     const [orders, total] = await Promise.all([
       Order.find(filter)
@@ -117,10 +144,14 @@ export async function GET(request: NextRequest) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// POST — Criar pedido (com decremento atômico de estoque + cupom + desconto balcão)
+// POST — Criar pedido (POS/manual) — ADMIN ONLY
+// (com decremento atômico de estoque + cupom + desconto balcão)
 // ═══════════════════════════════════════════════════════════════
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireAdminGuard();
+    if (guard.response) return guard.response;
+
     await connectDB();
     const body: CreateOrderBody = await request.json();
 
@@ -387,6 +418,10 @@ export async function POST(request: NextRequest) {
               },
               status: orderStatus,
               notes: body.notes || '',
+              // O estoque JÁ foi decrementado nesta transação — o flag
+              // harmoniza com o inventory.ts: cancel/refund devolve
+              // exatamente uma vez (claim reverso).
+              stockProcessed: true,
             },
           ],
           { session },

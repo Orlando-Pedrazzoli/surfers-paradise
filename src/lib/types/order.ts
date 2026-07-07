@@ -105,6 +105,11 @@ export interface IOrder {
   payment: IOrderPayment;
   shipping?: IOrderShipping; // Opcional (não existe em POS)
   status: OrderStatus;
+  // ─── Estoque ───
+  // Flag de idempotência do decremento de estoque na transição para paid.
+  // Gerenciado exclusivamente por services/inventory.ts (claim atômico) —
+  // nunca setar manualmente.
+  stockProcessed?: boolean;
   notes?: string;
   cancellationReason?: string;
   cancelledAt?: Date;

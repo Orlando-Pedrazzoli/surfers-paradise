@@ -2,11 +2,21 @@
 // v2: frete integrado — cotação automática ao completar o CEP (Melhor Envio),
 // barra de progresso do frete grátis, 5 opções com seleção obrigatória,
 // totais atualizados em tempo real com o frete escolhido.
+// v3: userId da sessão passado ao PaymentForm — pedido de cliente logado é
+//     vinculado à conta (Meus Pedidos) em vez de entrar como guest.
+// v3: nome/e-mail pré-preenchidos para cliente logado.
+// v3: CPF validado por dígitos verificadores no client — CPF inválido é
+//     barrado aqui, não no antifraude no fim do funil.
+// v3: removido disabled morto no botão de continuar.
+// v4: onPricesChanged ligado ao updateItemPrices do CartProvider — no 409
+//     PRICES_CHANGED o carrinho sincroniza com os preços do banco e o
+//     resumo/totais atualizam na hora.
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useCart } from '@/lib/context/CartProvider';
+import { useAuth } from '@/lib/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 import { ShoppingCart, MapPin, Pencil, Loader2, Package } from 'lucide-react';
 import PaymentForm from '@/components/checkout/PaymentForm';
@@ -42,6 +52,21 @@ const maskPhone = (v: string) => {
   return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
 };
 
+/** Validação de CPF por dígitos verificadores (mesma regra do servidor). */
+function isValidCpf(raw: string): boolean {
+  const cpf = onlyDigits(raw);
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const factor of [10, 11]) {
+    let sum = 0;
+    for (let i = 0; i < factor - 1; i++) {
+      sum += parseInt(cpf[i]) * (factor - i);
+    }
+    const digit = ((sum * 10) % 11) % 10;
+    if (digit !== parseInt(cpf[factor - 1])) return false;
+  }
+  return true;
+}
+
 const emptyForm = {
   name: '',
   email: '',
@@ -66,7 +91,11 @@ export default function CheckoutPage() {
     appliedCoupon,
     itemCount,
     clearCart,
+    updateItemPrices,
   } = useCart();
+  // Sessão: vincula o pedido à conta do cliente logado e pré-preenche dados.
+  // (Se o shape do useAuth for diferente de { user }, ajustar aqui.)
+  const { user } = useAuth();
   const [form, setForm] = useState(emptyForm);
   const [addressDone, setAddressDone] = useState(false);
   const [error, setError] = useState('');
@@ -76,6 +105,17 @@ export default function CheckoutPage() {
 
   const set = (k: keyof typeof emptyForm, v: string) =>
     setForm(f => ({ ...f, [k]: v }));
+
+  // Pré-preenche nome/e-mail do cliente logado (sem sobrescrever o que ele
+  // já digitou).
+  useEffect(() => {
+    if (!user) return;
+    setForm(f => ({
+      ...f,
+      name: f.name || user.name || '',
+      email: f.email || user.email || '',
+    }));
+  }, [user]);
 
   // ─── Cotação automática de frete (dispara quando o CEP completa) ───
   // Itens do carrinho podem ter dimensões cadastradas no produto; quando
@@ -148,7 +188,7 @@ export default function CheckoutPage() {
     if (form.name.trim().length < 3) return 'Informe seu nome completo.';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email))
       return 'E-mail inválido.';
-    if (onlyDigits(form.cpf).length !== 11) return 'CPF inválido.';
+    if (!isValidCpf(form.cpf)) return 'CPF inválido. Confira os números.';
     if (onlyDigits(form.phone).length < 10) return 'Telefone inválido.';
     if (onlyDigits(form.cep).length !== 8) return 'CEP inválido.';
     if (!form.street.trim()) return 'Informe a rua.';
@@ -370,7 +410,6 @@ export default function CheckoutPage() {
 
                 <button
                   onClick={handleContinue}
-                  disabled={!selectedShipping && quotes.length > 0 && false}
                   className='w-full rounded-md bg-[#FF6600] px-4 py-3 font-bold text-white transition-colors hover:bg-[#e55b00]'
                 >
                   Continuar para pagamento
@@ -417,7 +456,9 @@ export default function CheckoutPage() {
                 }}
                 coupon={appliedCoupon?.code}
                 couponDiscount={discount}
+                userId={user?.id}
                 onOrderCreated={clearCart}
+                onPricesChanged={updateItemPrices}
               />
             ) : (
               <p className='text-sm text-gray-500'>

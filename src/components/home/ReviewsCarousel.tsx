@@ -1,9 +1,14 @@
+// 📄 src/components/home/ReviewsCarousel.tsx
+// v2: dirigido pela API (/api/reviews?scope=home — aprovadas, nota >= 4,
+//     loja + produtos). As avaliações do Google que estavam hardcoded viram
+//     FALLBACK: aparecem enquanto não houver avaliações reais aprovadas no
+//     banco (e podem ser importadas como isStoreReview via seed/admin).
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 
-interface Review {
+interface CarouselReview {
   name: string;
   location: string;
   date: string;
@@ -11,7 +16,18 @@ interface Review {
   text: string;
 }
 
-const reviews: Review[] = [
+interface ApiReview {
+  name: string;
+  city?: string;
+  state?: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+// Fallback: avaliações reais da loja (Google) enquanto o banco não tem
+// avaliações aprovadas suficientes.
+const fallbackReviews: CarouselReview[] = [
   {
     name: 'Itamar Guimarães',
     location: 'São Paulo/SP',
@@ -47,13 +63,6 @@ const reviews: Review[] = [
     rating: 5,
     text: 'Comprar na Surfers Paradise é como escolher produtos entre amigos, me sinto em casa!',
   },
-  {
-    name: 'Itamar Guimarães',
-    location: 'São Paulo/SP',
-    date: '15/10/2025',
-    rating: 5,
-    text: 'Produtos incríveis de qualidade, linha completa das melhores marcas do Brasil e do mundo!',
-  },
 ];
 
 const renderStars = (rating: number) =>
@@ -71,6 +80,33 @@ export default function ReviewsCarousel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
+  const [reviews, setReviews] = useState<CarouselReview[]>(fallbackReviews);
+
+  // Busca as melhores avaliações aprovadas; mantém o fallback se não
+  // houver o suficiente no banco (mínimo 3 para o carousel fazer sentido).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/reviews?scope=home');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.reviews)) {
+          const mapped: CarouselReview[] = (data.reviews as ApiReview[]).map(
+            r => ({
+              name: r.name,
+              location:
+                [r.city, r.state].filter(Boolean).join('/') || 'Cliente',
+              date: new Date(r.createdAt).toLocaleDateString('pt-BR'),
+              rating: r.rating,
+              text: r.comment,
+            }),
+          );
+          if (mapped.length >= 3) setReviews(mapped);
+        }
+      } catch {
+        /* mantém fallback */
+      }
+    })();
+  }, []);
 
   const handleScroll = () => {
     if (!scrollRef.current) return;

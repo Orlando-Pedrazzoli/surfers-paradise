@@ -1,3 +1,10 @@
+// 📄 src/lib/context/CartProvider.tsx
+// v2: updateItemPrices — sincroniza os preços do carrinho quando o checkout
+//     devolve 409 PRICES_CHANGED (preços revalidados no banco).
+// v2: pixTotal derivado de company.payment.pixDiscountPercent — mesmo
+//     percentual usado no PaymentForm (antes era 0.9 hardcoded; se o
+//     desconto mudasse no config, o resumo mostraria um valor e o botão
+//     "Gerar PIX" outro).
 'use client';
 import {
   createContext,
@@ -7,6 +14,8 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
+import { company } from '@/lib/config/company';
+
 export interface CartItem {
   productId: string;
   name: string;
@@ -29,6 +38,11 @@ export interface AppliedCoupon {
   minOrderValue: number;
   maxDiscount: number;
 }
+export interface PriceUpdate {
+  productId?: string;
+  sku?: string;
+  price: number;
+}
 interface CartContextType {
   items: CartItem[];
   isCartOpen: boolean;
@@ -38,6 +52,7 @@ interface CartContextType {
   addToCart: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void;
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
+  updateItemPrices: (updates: PriceUpdate[]) => void;
   clearCart: () => void;
   itemCount: number;
   subtotal: number;
@@ -146,6 +161,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
       ),
     );
   }, []);
+  // Sincroniza preços com o banco quando o checkout devolve 409
+  // PRICES_CHANGED. Casa por productId (primário) ou sku (fallback).
+  const updateItemPrices = useCallback((updates: PriceUpdate[]) => {
+    if (!updates?.length) return;
+    setItems(prev =>
+      prev.map(item => {
+        const u = updates.find(
+          x =>
+            (x.productId && x.productId === item.productId) ||
+            (x.sku && x.sku === item.sku),
+        );
+        return u && u.price !== item.price ? { ...item, price: u.price } : item;
+      }),
+    );
+  }, []);
   const applyCoupon = useCallback((coupon: AppliedCoupon) => {
     setAppliedCoupon(coupon);
   }, []);
@@ -160,7 +190,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const discount = computeDiscount(appliedCoupon, subtotal);
   const total = Math.max(0, subtotal - discount);
-  const pixTotal = total * 0.9; // 10% PIX discount sobre o valor já com cupom
+  // Mesmo percentual do PaymentForm — fonte única: config da empresa
+  const pixTotal = total * (1 - company.payment.pixDiscountPercent / 100);
   return (
     <CartContext.Provider
       value={{
@@ -172,6 +203,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         addToCart,
         removeFromCart,
         updateQuantity,
+        updateItemPrices,
         clearCart,
         itemCount,
         subtotal,
