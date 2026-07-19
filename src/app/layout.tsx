@@ -1,3 +1,7 @@
+// src/app/layout.tsx
+// Root layout com sistema SEO completo: metadataBase, Open Graph, Twitter
+// Cards, robots, canonical e JSON-LD (OnlineStore + WebSite com SearchAction).
+
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono, Original_Surfer } from 'next/font/google';
 import './globals.css';
@@ -5,6 +9,16 @@ import AppProvider from '@/lib/context/AppProvider';
 import CartSidebar from '@/components/layout/CartSidebar';
 // import NewsletterModalTrigger from '@/components/marketing/NewsletterModalTrigger'; // desativado temporariamente a pedido do cliente
 import CookieConsent from '@/components/shared/CookieConsent';
+import JsonLd from '@/components/seo/JsonLd';
+import { organizationJsonLd, webSiteJsonLd } from '@/lib/seo/jsonld';
+import {
+  SITE_URL,
+  SITE_NAME,
+  SITE_TITLE,
+  SITE_DESCRIPTION,
+  SITE_KEYWORDS,
+  DEFAULT_OG_IMAGE,
+} from '@/lib/seo/config';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -21,13 +35,51 @@ const originalSurfer = Original_Surfer({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default:
-      'Surfers Paradise — 20 anos no mercado de acessórios e equipamentos para o Surf',
-    template: '%s | Surfers Paradise',
+    default: SITE_TITLE,
+    template: `%s | ${SITE_NAME}`,
   },
-  description:
-    'Surfers Paradise — 20 anos no mercado de acessórios e equipamentos para o Surf. Pranchas, quilhas, leashes, decks, wetsuits e muito mais. Parcele em até 10x sem juros.',
+  description: SITE_DESCRIPTION,
+  keywords: SITE_KEYWORDS,
+  applicationName: SITE_NAME,
+  // ⚠️ NÃO definir alternates.canonical aqui — seria herdado por todas as
+  // páginas sem canonical próprio, apontando o site inteiro para a home.
+  openGraph: {
+    type: 'website',
+    locale: 'pt_BR',
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: DEFAULT_OG_IMAGE,
+        width: 1200,
+        height: 630,
+        alt: SITE_NAME,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  // Após verificar no Google Search Console, colar o token aqui:
+  // verification: { google: 'TOKEN_GSC' },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
@@ -49,6 +101,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${originalSurfer.variable} antialiased`}
       >
+        <JsonLd data={organizationJsonLd()} />
+        <JsonLd data={webSiteJsonLd()} />
         <AppProvider>
           {children}
           <CartSidebar />

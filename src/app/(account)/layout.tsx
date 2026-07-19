@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 // 📄 src/app/(account)/layout.tsx
 // v2: GATE de autenticação server-side — sem sessão, redireciona para o
 //     login antes de renderizar qualquer página da área do cliente.
@@ -11,6 +12,10 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import WhatsAppButton from '@/components/layout/WhatsAppButton';
 import AccountSidebar from '@/components/account/AccountSidebar';
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function AccountLayout({
   children,

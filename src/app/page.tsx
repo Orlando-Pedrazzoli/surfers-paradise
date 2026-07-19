@@ -1,3 +1,12 @@
+// src/app/page.tsx
+// Home — canonical explícito + title otimizado para a keyword principal.
+
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  alternates: { canonical: '/' },
+};
+
 import AnnouncementBar from '@/components/layout/AnnouncementBar';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
