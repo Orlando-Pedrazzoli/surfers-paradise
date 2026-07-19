@@ -78,8 +78,10 @@ export const metadata: Metadata = {
       'max-video-preview': -1,
     },
   },
-  // Após verificar no Google Search Console, colar o token aqui:
-  // verification: { google: 'TOKEN_GSC' },
+  // Redundância — a verificação real da propriedade Domínio é via TXT no DNS
+  verification: {
+    google: 'c_t1QPP_mkUI343NkFzPoN4NWSiUuXeH8bUHsbSHAq4',
+  },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
