@@ -79,7 +79,10 @@ const orderSchema = new Schema<IOrder>(
         default: 'pending',
         index: true,
       },
-      // Online
+      // Online — Mercado Pago (gateway atual)
+      mpOrderId: { type: String, default: '' },
+      mpPaymentId: { type: String, default: '' },
+      // Online — Pagar.me (legado, mantido para histórico de pedidos antigos)
       pagarmeOrderId: { type: String, default: '' },
       pagarmeChargeId: { type: String, default: '' },
       installments: { type: Number, default: 1 },

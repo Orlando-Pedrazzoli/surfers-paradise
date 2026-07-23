@@ -1,21 +1,32 @@
 // 📄 src/app/api/payments/webhook/route.ts
-// Recebe notificações da Pagar.me V5 e atualiza o status do pedido.
-// Segurança: Basic Auth (configurado no dashboard) validado em tempo constante,
-// FAIL-CLOSED em produção (ver validateWebhookAuth em services/pagarme.ts).
-// Idempotente: ignora eventos repetidos de pedido já pago.
+// Recebe notificações do MERCADO PAGO (tópico "order" da API de Orders) e
+// atualiza o status do pedido.
 //
-// v2: envia e-mail de confirmação quando PIX/boleto vira "paid".
-// v3: decrementa estoque na transição para paid (processOrderStock, claim
-//     atômico idempotente) e restaura em refund (restoreOrderStock).
-//     No branch idempotente também chama processOrderStock — cobre o caso
-//     raro de o decremento do cartão instantâneo ter falhado no checkout
-//     (a função é barata quando já processado: um findOneAndUpdate que não
-//     casa filtro).
+// Segurança: assinatura HMAC do header x-signature (ts + v1) validada em
+// tempo constante com MP_WEBHOOK_SECRET — FAIL-CLOSED em produção
+// (ver validateWebhookSignature em services/mercadopago.ts).
+//
+// Fonte de verdade: a notificação traz apenas o ID do recurso; o status
+// REAL é buscado via GET /v1/orders/{id} — nunca confiamos no corpo da
+// notificação para transições de estado.
+//
+// Idempotente: reenvio de evento de pedido já pago não reenvia e-mail;
+// estoque usa claim atômico (processOrderStock/restoreOrderStock).
+//
+// Herda da versão Pagar.me: transições paid → estoque + e-mail;
+// refund → restaura estoque; failed/expired → marca failed.
 
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
-import { validateWebhookAuth, parseWebhookEvent } from '@/lib/services/pagarme';
+import {
+  validateWebhookSignature,
+  parseWebhookEvent,
+  getOrder,
+  isPaidStatus,
+  isFailedStatus,
+  isRefundedStatus,
+} from '@/lib/services/mercadopago';
 import { sendOrderConfirmation } from '@/lib/services/email';
 import { processOrderStock, restoreOrderStock } from '@/lib/services/inventory';
 
@@ -23,106 +34,94 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  // 1. Autenticação
-  if (!validateWebhookAuth(request.headers.get('authorization'))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const url = new URL(request.url);
 
-  // 2. Parse do payload
-  let payload: Record<string, any>;
+  // 1. Parse do payload (o MP também manda data.id na query string)
+  let payload: Record<string, any> = {};
   try {
     payload = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    // corpo vazio é tolerado — alguns eventos chegam só com query params
+  }
+  const event = parseWebhookEvent(payload, url.searchParams);
+
+  // 2. Autenticação (assinatura HMAC sobre data.id + x-request-id + ts)
+  const authentic = validateWebhookSignature({
+    xSignature: request.headers.get('x-signature'),
+    xRequestId: request.headers.get('x-request-id'),
+    dataId: event.dataId || null,
+  });
+  if (!authentic) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const event = parseWebhookEvent(payload);
-  const data = payload?.data ?? {};
+  if (!event.dataId) {
+    return NextResponse.json({ received: true, matched: false });
+  }
 
   try {
     await connectDB();
 
-    // 3. Localiza o pedido (por orderId, chargeId ou orderNumber)
-    const filters: Record<string, unknown>[] = [];
-    if (data.id && String(data.id).startsWith('or_')) {
-      filters.push({ 'payment.pagarmeOrderId': data.id });
-    }
-    if (data.id && String(data.id).startsWith('ch_')) {
-      filters.push({ 'payment.pagarmeChargeId': data.id });
-    }
-    if (data.order?.id)
-      filters.push({ 'payment.pagarmeOrderId': data.order.id });
-    if (data.code) filters.push({ orderNumber: data.code });
-    if (data.order?.code) filters.push({ orderNumber: data.order.code });
-
-    if (filters.length === 0) {
-      return NextResponse.json({ received: true, matched: false });
+    // 3. Busca o estado REAL na API do MP (fonte de verdade)
+    let gw;
+    try {
+      gw = await getOrder(event.dataId);
+    } catch (e) {
+      console.error('[MP Webhook] falha ao consultar order:', event.dataId, e);
+      // 500 → o MP reagenda o reenvio; não perdemos o evento
+      return NextResponse.json({ error: 'gateway' }, { status: 500 });
     }
 
-    const order = await Order.findOne({ $or: filters });
+    // 4. Localiza o pedido local (por mpOrderId ou external_reference não
+    // disponível aqui — o id ORD... é o vínculo primário)
+    const order = await Order.findOne({
+      $or: [
+        { 'payment.mpOrderId': gw.id },
+        { 'payment.mpPaymentId': gw.payment?.id || '__none__' },
+      ],
+    });
+
     if (!order) {
-      // Pedido desconhecido — confirma recebimento pra não gerar reenvios infinitos
-      console.warn('[Pagar.me Webhook] pedido não encontrado:', {
-        type: event.type,
-        id: data.id,
-        code: data.code || data.order?.code,
+      console.warn('[MP Webhook] pedido não encontrado:', {
+        action: event.action,
+        mpOrderId: gw.id,
       });
+      // Confirma recebimento para não gerar reenvios infinitos
       return NextResponse.json({ received: true, matched: false });
     }
-
-    // 4. Classifica o evento
-    const gwStatus = String(data.status || '').toLowerCase();
-    const type = event.type || '';
-
-    const isPaid =
-      type === 'order.paid' || type === 'charge.paid' || gwStatus === 'paid';
-    const isRefund = type.includes('refund') || gwStatus === 'refunded';
-    const isFailed =
-      type.includes('payment_failed') ||
-      ['failed', 'not_authorized', 'with_error'].includes(gwStatus);
-    const isCanceled = type.includes('canceled') || gwStatus === 'canceled';
 
     // 5. Aplica a transição (com idempotência)
-    if (isPaid) {
+    if (isPaidStatus(gw)) {
       if (order.payment.status === 'paid') {
-        // Já processado (cartão confirmado no checkout, ou reenvio da Pagar.me).
-        // O e-mail NÃO é reenviado, mas o estoque é reconferido — cobre o caso
-        // de o decremento ter falhado no momento do checkout. Barato quando já
-        // processado (claim não casa e retorna direto).
+        // Já processado (cartão aprovado no checkout, ou reenvio do MP).
+        // E-mail NÃO é reenviado; estoque é reconferido (claim barato).
         processOrderStock(order._id).catch(() => {});
         return NextResponse.json({ received: true, idempotent: true });
       }
       order.payment.status = 'paid';
       order.payment.paidAt = new Date();
       if (order.status === 'pending') order.status = 'confirmed';
-
-      const chargeId =
-        data.charges?.[0]?.id ||
-        (String(data.id).startsWith('ch_') ? data.id : '');
-      if (chargeId) order.payment.pagarmeChargeId = chargeId;
+      if (gw.payment?.id) order.payment.mpPaymentId = gw.payment.id;
 
       await order.save();
 
-      // 6. Estoque: decremento idempotente (claim atômico no inventory.ts).
-      // Aguardamos de propósito — se falhar, loga mas NÃO falha o webhook.
+      // 6. Estoque: decremento idempotente (claim atômico no inventory.ts)
       await processOrderStock(order._id);
 
-      // 7. Confirmação por e-mail — é AQUI que PIX e boleto pagos são
-      // notificados (o checkout só envia para cartão aprovado na hora).
-      // Fire-and-forget: falha no e-mail não pode falhar o webhook, senão a
-      // Pagar.me reenvia e tenta marcar como pago de novo.
+      // 7. Confirmação por e-mail — é AQUI que o PIX pago é notificado
+      // (o checkout só envia para cartão aprovado na hora). Fire-and-forget.
       const email = order.customerSnapshot?.email || order.guestEmail;
       if (email) {
         sendOrderConfirmation(email, order.orderNumber).catch(e =>
           console.error(
-            '[Pagar.me Webhook] falha ao enviar confirmação:',
+            '[MP Webhook] falha ao enviar confirmação:',
             order.orderNumber,
             e,
           ),
         );
       } else {
         console.error(
-          '[Pagar.me Webhook] pedido pago sem e-mail de contato:',
+          '[MP Webhook] pedido pago sem e-mail de contato:',
           order.orderNumber,
         );
       }
@@ -130,35 +129,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
-    if (isRefund) {
+    if (isRefundedStatus(gw)) {
       const wasPaid = order.payment.status === 'paid';
       order.payment.status = 'refunded';
       await order.save();
-      // Devolve o estoque se ele tinha sido decrementado (claim reverso —
-      // idempotente, reenvios de charge.refunded não restauram duas vezes)
       if (wasPaid || order.stockProcessed) {
         await restoreOrderStock(order._id);
       }
       return NextResponse.json({ received: true });
     }
 
-    if (isFailed) {
-      if (order.payment.status !== 'paid') order.payment.status = 'failed';
-    } else if (isCanceled) {
+    if (isFailedStatus(gw)) {
       if (order.payment.status !== 'paid') {
         order.payment.status = 'failed';
-        order.status = 'cancelled';
+        if (['canceled', 'cancelled', 'expired'].includes(gw.status)) {
+          order.status = 'cancelled';
+        }
+        await order.save();
       }
-    } else {
-      // created / processing / etc → apenas confirma
-      return NextResponse.json({ received: true, ignored: type });
+      return NextResponse.json({ received: true });
     }
 
-    await order.save();
-    return NextResponse.json({ received: true });
+    // created / action_required / processing → apenas confirma recebimento
+    return NextResponse.json({ received: true, ignored: gw.status });
   } catch (err) {
-    console.error('[Pagar.me Webhook] erro:', err);
-    // 500 faz a Pagar.me reenviar (eventos transitórios não se perdem)
+    console.error('[MP Webhook] erro:', err);
+    // 500 faz o MP reenviar (eventos transitórios não se perdem)
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 }

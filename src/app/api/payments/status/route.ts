@@ -2,7 +2,8 @@
 // Consulta de status para polling do front (PIX/boleto confirmam via webhook).
 //
 // v2: valida ObjectId antes do findOne (orderId malformado devolvia 500).
-// v2: FALLBACK ATIVO à Pagar.me com throttle — se o pedido está pending há
+// v3: gateway migrado para o Mercado Pago (getOrder + status normalizados).
+// v2: FALLBACK ATIVO ao gateway com throttle — se o pedido está pending há
 //     mais de 30s desde a última verificação, consulta getOrder() direto no
 //     gateway. Se lá constar paid, aplica a mesma transição do webhook
 //     (status + estoque idempotente + e-mail). Isso garante que o cliente
@@ -14,7 +15,11 @@ import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
-import { getOrder } from '@/lib/services/pagarme';
+import {
+  getOrder,
+  isPaidStatus,
+  isFailedStatus,
+} from '@/lib/services/mercadopago';
 import { processOrderStock } from '@/lib/services/inventory';
 import { sendOrderConfirmation } from '@/lib/services/email';
 
@@ -52,27 +57,22 @@ export async function GET(request: Request) {
     );
   }
 
-  // ── Fallback ativo: pending + PIX/boleto + throttle vencido → pergunta
-  // direto à Pagar.me (rede de segurança para webhook fora do ar)
+  // ── Fallback ativo: pending + PIX + throttle vencido → pergunta direto
+  // ao Mercado Pago (rede de segurança para webhook fora do ar)
   // (const extraída para o narrowing do TS funcionar na chamada do getOrder)
-  const pagarmeOrderId = order.payment.pagarmeOrderId;
+  const mpOrderId = order.payment.mpOrderId;
   const isPollable =
     order.payment.status === 'pending' &&
-    !!pagarmeOrderId &&
-    ['pix', 'boleto'].includes(order.payment.method);
+    !!mpOrderId &&
+    order.payment.method === 'pix';
 
   const sinceLastCheck = Date.now() - new Date(order.updatedAt).getTime();
 
-  if (
-    isPollable &&
-    pagarmeOrderId &&
-    sinceLastCheck > GATEWAY_CHECK_THROTTLE_MS
-  ) {
+  if (isPollable && mpOrderId && sinceLastCheck > GATEWAY_CHECK_THROTTLE_MS) {
     try {
-      const pg = await getOrder(pagarmeOrderId);
-      const gwStatus = pg.charge?.status || pg.status;
+      const pg = await getOrder(mpOrderId);
 
-      if (gwStatus === 'paid') {
+      if (isPaidStatus(pg)) {
         // Mesma transição do webhook — se o webhook chegar depois, o branch
         // idempotente dele não duplica e-mail nem estoque.
         order.payment.status = 'paid';
@@ -96,9 +96,11 @@ export async function GET(request: Request) {
           '[Payment Status] pedido confirmado via fallback (webhook não chegou):',
           order.orderNumber,
         );
-      } else if (['failed', 'canceled'].includes(gwStatus || '')) {
+      } else if (isFailedStatus(pg)) {
         order.payment.status = 'failed';
-        if (gwStatus === 'canceled') order.status = 'cancelled';
+        if (['canceled', 'cancelled', 'expired'].includes(pg.status)) {
+          order.status = 'cancelled';
+        }
         await order.save();
       } else {
         // Continua pendente — toca updatedAt para rearmar o throttle
@@ -110,7 +112,7 @@ export async function GET(request: Request) {
     } catch (err) {
       // Gateway indisponível não pode quebrar o polling — segue com o banco
       console.error(
-        '[Payment Status] fallback Pagar.me falhou:',
+        '[Payment Status] fallback Mercado Pago falhou:',
         order.orderNumber,
         err,
       );

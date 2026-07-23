@@ -1,4 +1,7 @@
 // 📄 src/components/checkout/PaymentForm.tsx
+// v3 (Mercado Pago): cartão envia paymentMethodId (bandeira) junto com o
+//     cardToken para /api/payments/card; aba de BOLETO removida da UI
+//     (rota devolve 410 — reativável no futuro via MP).
 // v2: trata o 409 PRICES_CHANGED do backend (preços revalidados no banco) —
 //     mostra a mensagem do servidor e notifica onPricesChanged para o
 //     carrinho sincronizar os valores novos.
@@ -11,11 +14,10 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { CreditCard, QrCode, FileText } from 'lucide-react';
+import { CreditCard, QrCode } from 'lucide-react';
 import { company } from '@/lib/config/company';
 import CreditCardForm from './CreditCardForm';
 import PixPayment from './PixPayment';
-import BoletoPayment from './BoletoPayment';
 import type {
   PaymentCustomer,
   PaymentAddress,
@@ -23,10 +25,9 @@ import type {
   CheckoutShipping,
   CheckoutResponse,
   PixResult,
-  BoletoResult,
 } from '@/lib/types/payment';
 
-type Method = 'credit_card' | 'pix' | 'boleto';
+type Method = 'credit_card' | 'pix';
 
 export interface UpdatedPrice {
   productId?: string;
@@ -81,20 +82,15 @@ export default function PaymentForm({
   const [pix, setPix] = useState<
     (PixResult & { orderNumber: string; orderId?: string }) | null
   >(null);
-  const [boleto, setBoleto] = useState<
-    (BoletoResult & { orderNumber: string }) | null
-  >(null);
-
-  const { pixDiscountPercent, boletoDiscountPercent } = company.payment;
+  const { pixDiscountPercent } = company.payment;
   const base = Math.max(0, subtotal - couponDiscount);
 
   const totals = useMemo(
     () => ({
       credit_card: base + shippingCost,
       pix: base * (1 - pixDiscountPercent / 100) + shippingCost,
-      boleto: base * (1 - boletoDiscountPercent / 100) + shippingCost,
     }),
-    [base, shippingCost, pixDiscountPercent, boletoDiscountPercent],
+    [base, shippingCost, pixDiscountPercent],
   );
 
   const basePayload = {
@@ -157,13 +153,16 @@ export default function PaymentForm({
 
   async function handleCardToken({
     cardToken,
+    paymentMethodId,
     installments,
   }: {
     cardToken: string;
+    paymentMethodId: string;
     installments: number;
   }) {
-    const data = await postCheckout('/api/payments/pagarme', {
+    const data = await postCheckout('/api/payments/card', {
       cardToken,
+      paymentMethodId,
       installments,
     });
     if (data?.success && data.orderNumber) {
@@ -183,12 +182,6 @@ export default function PaymentForm({
     }
   }
 
-  async function handleBoleto() {
-    const data = await postCheckout('/api/payments/boleto');
-    if (data?.boleto && data.orderNumber)
-      setBoleto({ ...data.boleto, orderNumber: data.orderNumber });
-  }
-
   if (pix) {
     return (
       <PixPayment
@@ -201,10 +194,6 @@ export default function PaymentForm({
       />
     );
   }
-  if (boleto) {
-    return <BoletoPayment {...boleto} />;
-  }
-
   const tabs: { id: Method; label: string; icon: ReactNode }[] = [
     {
       id: 'credit_card',
@@ -212,12 +201,11 @@ export default function PaymentForm({
       icon: <CreditCard className='h-4 w-4' />,
     },
     { id: 'pix', label: 'PIX', icon: <QrCode className='h-4 w-4' /> },
-    { id: 'boleto', label: 'Boleto', icon: <FileText className='h-4 w-4' /> },
   ];
 
   return (
     <div className='space-y-5'>
-      <div className='grid grid-cols-3 gap-2'>
+      <div className='grid grid-cols-2 gap-2'>
         {tabs.map(t => (
           <button
             key={t.id}
@@ -269,28 +257,6 @@ export default function PaymentForm({
             className='w-full rounded-lg bg-[#FF6600] px-4 py-3 font-semibold text-white transition hover:bg-[#e55b00] disabled:opacity-60'
           >
             {submitting ? 'Gerando PIX...' : `Gerar PIX de ${brl(totals.pix)}`}
-          </button>
-        </div>
-      )}
-
-      {method === 'boleto' && (
-        <div className='space-y-4 text-center'>
-          <p className='text-sm text-gray-600'>
-            Valor no boleto:{' '}
-            <span className='font-semibold'>{brl(totals.boleto)}</span>{' '}
-            <span className='text-green-600'>
-              ({boletoDiscountPercent}% de desconto)
-            </span>
-          </p>
-          <button
-            type='button'
-            onClick={handleBoleto}
-            disabled={submitting}
-            className='w-full rounded-lg bg-[#FF6600] px-4 py-3 font-semibold text-white transition hover:bg-[#e55b00] disabled:opacity-60'
-          >
-            {submitting
-              ? 'Gerando boleto...'
-              : `Gerar boleto de ${brl(totals.boleto)}`}
           </button>
         </div>
       )}

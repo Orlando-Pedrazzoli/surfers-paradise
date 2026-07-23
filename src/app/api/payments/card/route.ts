@@ -1,4 +1,8 @@
-// 📄 src/app/api/payments/pagarme/route.ts
+// 📄 src/app/api/payments/card/route.ts
+// Checkout com cartão de crédito via Mercado Pago (Checkout Transparente).
+// Recebe cardToken + paymentMethodId (bandeira) tokenizados no front com a
+// Public Key e delega ao orquestrador processCheckout.
+
 import { NextResponse } from 'next/server';
 import { processCheckout } from '@/lib/services/checkout';
 

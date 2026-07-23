@@ -1,4 +1,7 @@
 // 📄 src/components/checkout/CreditCardForm.tsx
+// v2 (Mercado Pago): tokenização via POST /v1/card_tokens com a Public Key;
+// a bandeira detectada localmente vira o paymentMethodId exigido pela API
+// de Orders (visa | master | amex | elo | hipercard).
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -11,12 +14,22 @@ interface CreditCardFormProps {
   loading?: boolean; // estado externo (envio para a rota de pagamento)
   onToken: (data: {
     cardToken: string;
+    paymentMethodId: string;
     installments: number;
     holderName: string;
   }) => void | Promise<void>;
 }
 
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_PAGARME_PUBLIC_KEY;
+const PUBLIC_KEY = process.env.NEXT_PUBLIC_MP_PUBLIC_KEY;
+
+/** Bandeira exibida na UI → payment_method.id da API de Orders do MP. */
+const BRAND_TO_MP_ID: Record<string, string> = {
+  Visa: 'visa',
+  Mastercard: 'master',
+  Amex: 'amex',
+  Elo: 'elo',
+  Hipercard: 'hipercard',
+};
 
 const brl = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -94,7 +107,7 @@ export default function CreditCardForm({
 
   async function tokenizeCard(): Promise<string> {
     if (!PUBLIC_KEY)
-      throw new Error('Chave pública da Pagar.me não configurada.');
+      throw new Error('Chave pública do Mercado Pago não configurada.');
 
     const [mmRaw, yyRaw] = validade.split('/');
     const expMonth = parseInt(mmRaw || '', 10);
@@ -102,7 +115,7 @@ export default function CreditCardForm({
     if (expYear < 100) expYear += 2000;
 
     const res = await fetch(
-      `https://api.pagar.me/core/v5/tokens?appId=${PUBLIC_KEY}`,
+      `https://api.mercadopago.com/v1/card_tokens?public_key=${PUBLIC_KEY}`,
       {
         method: 'POST',
         headers: {
@@ -110,16 +123,18 @@ export default function CreditCardForm({
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          type: 'card',
-          card: {
-            number: onlyDigits(number),
-            holder_name: name.trim(),
-            holder_document: holderDocument
-              ? onlyDigits(holderDocument)
+          card_number: onlyDigits(number),
+          expiration_month: expMonth,
+          expiration_year: expYear,
+          security_code: cvv.trim(),
+          cardholder: {
+            name: name.trim(),
+            identification: holderDocument
+              ? {
+                  type: onlyDigits(holderDocument).length > 11 ? 'CNPJ' : 'CPF',
+                  number: onlyDigits(holderDocument),
+                }
               : undefined,
-            exp_month: expMonth,
-            exp_year: expYear,
-            cvv: cvv.trim(),
           },
         }),
       },
@@ -129,11 +144,13 @@ export default function CreditCardForm({
     if (!res.ok || !data?.id) {
       throw new Error(data?.message || 'Não foi possível validar o cartão.');
     }
-    return data.id as string; // token_...
+    return data.id as string;
   }
 
   function validate(): string | null {
     if (!luhnValid(number)) return 'Número de cartão inválido.';
+    if (!BRAND_TO_MP_ID[brand])
+      return 'Bandeira não suportada. Use Visa, Mastercard, Amex, Elo ou Hipercard.';
     if (name.trim().length < 3) return 'Informe o nome como está no cartão.';
     const [mm, yy] = validade.split('/');
     const month = parseInt(mm || '', 10);
@@ -157,7 +174,12 @@ export default function CreditCardForm({
     try {
       setTokenizing(true);
       const cardToken = await tokenizeCard();
-      await onToken({ cardToken, installments, holderName: name.trim() });
+      await onToken({
+        cardToken,
+        paymentMethodId: BRAND_TO_MP_ID[brand],
+        installments,
+        holderName: name.trim(),
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Erro ao processar o cartão.',
@@ -274,8 +296,8 @@ export default function CreditCardForm({
       </button>
 
       <p className='flex items-center justify-center gap-1 text-xs text-gray-400'>
-        <Lock className='h-3 w-3' /> Dados protegidos. O cartão é tokenizado e
-        nunca passa pelo nosso servidor.
+        <Lock className='h-3 w-3' /> Dados protegidos. O cartão é tokenizado
+        pelo Mercado Pago e nunca passa pelo nosso servidor.
       </p>
     </div>
   );

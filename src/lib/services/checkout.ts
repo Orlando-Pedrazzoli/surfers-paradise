@@ -1,7 +1,18 @@
 // 📄 src/lib/services/checkout.ts
 // Orquestra o checkout online: valida → REVALIDA PREÇOS NO BANCO → cupom
-// server-side → totais → antifraude → cria pedido pending → cria pedido na
-// Pagar.me → atualiza status.
+// server-side → totais → antifraude → cria pedido pending → cria a order no
+// MERCADO PAGO (API de Orders) → atualiza status.
+//
+// v6 (migração Pagar.me → Mercado Pago):
+// - Gateway trocado para services/mercadopago (API de Orders, Checkout
+//   Transparente). O MP cobra total_amount diretamente, então a distribuição
+//   proporcional de desconto por item (buildPagarmeItems) foi aposentada.
+// - Cartão agora exige paymentMethodId (bandeira) além do cardToken —
+//   tokenização feita no front com a Public Key do MP.
+// - PIX: qr_code (copia-e-cola) + qr_code_base64 (imagem, salva como data
+//   URI em pixQrCode para o <img> do PixPayment funcionar sem mudanças).
+// - BOLETO desativado nesta migração (pode voltar via MP payment_method
+//   bolbradesco/type ticket quando o negócio pedir).
 //
 // v2: desconto (cupom + método) distribuído proporcionalmente nos itens
 // enviados à Pagar.me — a Orders API V5 não tem campo de desconto e cobra
@@ -28,10 +39,12 @@ import Coupon from '@/lib/models/Coupon';
 import Product from '@/lib/models/Product';
 import { company } from '@/lib/config/company';
 import {
-  createOrder as createPagarmeOrder,
-  PagarmeError,
-  type PagarmeAddressInput,
-} from '@/lib/services/pagarme';
+  createOrder as createMpOrder,
+  isPaidStatus,
+  isFailedStatus,
+  MercadoPagoError,
+  type MpAddressInput,
+} from '@/lib/services/mercadopago';
 import { checkFraud } from '@/lib/services/fraudProtection';
 import { sendOrderConfirmation } from '@/lib/services/email';
 import { processOrderStock } from '@/lib/services/inventory';
@@ -86,6 +99,7 @@ const baseSchema = z.object({
   // o desconto é recalculado server-side em resolveCoupon().
   couponDiscount: z.number().nonnegative().optional().default(0),
   cardToken: z.string().optional(),
+  paymentMethodId: z.string().optional(), // bandeira MP (visa/master/...)
   installments: z.number().int().positive().optional(),
   ip: z.string().optional(),
 });
@@ -96,14 +110,13 @@ export interface CheckoutResult {
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
-const toCents = (v: number) => Math.round(v * 100);
 
 type CartItem = z.infer<typeof itemSchema>;
 
 /** Item do carrinho com o preço-verdade do banco aplicado. */
 type PricedItem = CartItem & { unitPrice: number };
 
-function mapAddress(a: z.infer<typeof addressSchema>): PagarmeAddressInput {
+function mapAddress(a: z.infer<typeof addressSchema>): MpAddressInput {
   return {
     zipCode: a.cep,
     street: a.street,
@@ -112,7 +125,6 @@ function mapAddress(a: z.infer<typeof addressSchema>): PagarmeAddressInput {
     neighborhood: a.neighborhood,
     city: a.city,
     state: a.state,
-    country: 'BR',
   };
 }
 
@@ -296,67 +308,6 @@ async function resolveCoupon(
   return { discount: round2(discount) };
 }
 
-/**
- * Distribui o desconto total proporcionalmente entre as linhas do carrinho,
- * em CENTAVOS, garantindo que a soma feche exatamente com o valor esperado.
- * Cada linha vira um item Pagar.me com quantity 1 e amount = total da linha
- * já descontado (a quantidade vai no nome, ex: "Deck Frontal (x2)").
- *
- * v4: guarda contra remainder <= 0 no último item (desconto agressivo +
- * arredondamento dos anteriores para cima). Se acontecer, o último item
- * fica com 1 centavo e a diferença é redistribuída subtraindo dos itens
- * anteriores (maiores primeiro), mantendo todos >= 1 e a soma exata.
- */
-function buildPagarmeItems(
-  items: PricedItem[],
-  subtotal: number,
-  targetTotalCents: number,
-) {
-  const lineTotalsCents = items.map(i => toCents(i.unitPrice * i.quantity));
-  const subtotalCents = toCents(subtotal);
-
-  const cents: number[] = new Array(items.length);
-  let allocated = 0;
-  for (let idx = 0; idx < items.length; idx++) {
-    if (idx === items.length - 1) {
-      cents[idx] = targetTotalCents - allocated; // remainder fecha a conta
-    } else {
-      let c = Math.round(
-        (lineTotalsCents[idx] / subtotalCents) * targetTotalCents,
-      );
-      c = Math.max(1, c); // Pagar.me exige amount >= 1
-      cents[idx] = c;
-      allocated += c;
-    }
-  }
-
-  // Guarda: último item precisa ser >= 1 centavo
-  if (cents[cents.length - 1] < 1) {
-    let deficit = 1 - cents[cents.length - 1];
-    cents[cents.length - 1] = 1;
-    // Subtrai o deficit dos itens anteriores, dos maiores para os menores
-    const order = cents
-      .map((c, i) => ({ c, i }))
-      .slice(0, -1)
-      .sort((a, b) => b.c - a.c);
-    for (const { i } of order) {
-      if (deficit <= 0) break;
-      const take = Math.min(deficit, cents[i] - 1);
-      cents[i] -= take;
-      deficit -= take;
-    }
-    // Se ainda houver deficit, o total é impraticável (todos a 1 centavo)
-    // — processCheckout já bloqueia productsTotal <= 0 antes de chegar aqui.
-  }
-
-  return items.map((item, idx) => ({
-    name: item.quantity > 1 ? `${item.name} (x${item.quantity})` : item.name,
-    quantity: 1,
-    amount: cents[idx],
-    code: item.sku || undefined,
-  }));
-}
-
 export async function processCheckout(
   method: PaymentMethod,
   raw: unknown,
@@ -370,10 +321,22 @@ export async function processCheckout(
   }
   const input = parsed.data;
 
-  if (method === 'credit_card' && !input.cardToken) {
+  if (
+    method === 'credit_card' &&
+    (!input.cardToken || !input.paymentMethodId)
+  ) {
     return {
       status: 400,
-      body: { error: 'cardToken é obrigatório para cartão.' },
+      body: {
+        error: 'cardToken e paymentMethodId são obrigatórios para cartão.',
+      },
+    };
+  }
+
+  if (method === 'boleto') {
+    return {
+      status: 400,
+      body: { error: 'Boleto temporariamente indisponível.' },
     };
   }
 
@@ -403,11 +366,8 @@ export async function processCheckout(
   if (method === 'pix') {
     methodDiscount =
       (subtotal - couponDiscount) * (company.payment.pixDiscountPercent / 100);
-  } else if (method === 'boleto') {
-    methodDiscount =
-      (subtotal - couponDiscount) *
-      (company.payment.boletoDiscountPercent / 100);
   }
+  // (boleto desativado na migração para o Mercado Pago — early-return acima)
 
   const totalDiscount = round2(couponDiscount + methodDiscount);
   const productsTotal = round2(subtotal - totalDiscount); // itens após desconto
@@ -481,32 +441,30 @@ export async function processCheckout(
     ip: input.ip || '',
   });
 
-  // 4. Cria o pedido na Pagar.me
-  // Itens com desconto distribuído: a soma dos amounts + frete = total exato.
+  // 4. Cria a order no Mercado Pago (API de Orders).
+  // O MP cobra total_amount diretamente — sem distribuição de desconto por
+  // item. O total já vem 100% calculado server-side acima.
   try {
     const payment =
       method === 'credit_card'
         ? {
             method: 'credit_card' as const,
             cardToken: input.cardToken!,
+            paymentMethodId: input.paymentMethodId!,
             installments,
           }
-        : method === 'pix'
-          ? { method: 'pix' as const, expiresIn: 3600 }
-          : { method: 'boleto' as const, dueInDays: 3 };
+        : { method: 'pix' as const, expiresInSeconds: 3600 };
 
-    const pg = await createPagarmeOrder({
+    const pg = await createMpOrder({
       code: order.orderNumber,
+      totalAmount: total,
       customer: {
         name: input.customer.name,
         email: input.customer.email,
         document: input.customer.document,
         phone: input.customer.phone,
       },
-      billingAddress: mapAddress(input.shippingAddress),
       shippingAddress: mapAddress(input.shippingAddress),
-      shippingAmount: toCents(input.shippingCost),
-      items: buildPagarmeItems(items, subtotal, toCents(productsTotal)),
       payment,
     });
 
@@ -523,26 +481,22 @@ export async function processCheckout(
     }
 
     // 5. Atualiza pedido com o retorno do gateway
-    order.payment.pagarmeOrderId = pg.id;
-    if (pg.charge?.id) order.payment.pagarmeChargeId = pg.charge.id;
+    order.payment.mpOrderId = pg.id;
+    if (pg.payment?.id) order.payment.mpPaymentId = pg.payment.id;
 
     if (pg.pix) {
-      order.payment.pixQrCode = pg.pix.qrCodeUrl; // imagem do QR
+      // imagem: data URI base64 (o <img src> do PixPayment renderiza direto)
+      order.payment.pixQrCode = pg.pix.qrCodeBase64
+        ? `data:image/png;base64,${pg.pix.qrCodeBase64}`
+        : pg.pix.ticketUrl;
       order.payment.pixCopyPaste = pg.pix.qrCode; // copia-e-cola (EMV)
     }
-    if (pg.boleto) {
-      order.payment.boletoUrl = pg.boleto.url;
-      order.payment.boletoBarcode = pg.boleto.line; // linha digitável
-    }
 
-    const gwStatus = pg.charge?.status || pg.status;
-    if (gwStatus === 'paid') {
+    if (isPaidStatus(pg)) {
       order.payment.status = 'paid';
       order.payment.paidAt = new Date();
       order.status = 'confirmed';
-    } else if (
-      ['failed', 'not_authorized', 'with_error'].includes(gwStatus || '')
-    ) {
+    } else if (isFailedStatus(pg)) {
       order.payment.status = 'failed';
     }
 
@@ -577,17 +531,7 @@ export async function processCheckout(
         pix: pg.pix
           ? {
               qrCode: pg.pix.qrCode,
-              qrCodeUrl: pg.pix.qrCodeUrl,
-              expiresAt: pg.pix.expiresAt,
-            }
-          : undefined,
-        boleto: pg.boleto
-          ? {
-              url: pg.boleto.url,
-              pdf: pg.boleto.pdf,
-              line: pg.boleto.line,
-              barcode: pg.boleto.barcode,
-              dueAt: pg.boleto.dueAt,
+              qrCodeUrl: order.payment.pixQrCode,
             }
           : undefined,
       },
@@ -596,13 +540,13 @@ export async function processCheckout(
     order.payment.status = 'failed';
     await order.save().catch(() => {});
     const message =
-      err instanceof PagarmeError
+      err instanceof MercadoPagoError
         ? err.message
         : 'Erro ao processar pagamento.';
     console.error(
-      '[Checkout] Pagar.me erro:',
+      '[Checkout] Mercado Pago erro:',
       message,
-      err instanceof PagarmeError ? err.details : err,
+      err instanceof MercadoPagoError ? err.details : err,
     );
     return {
       status: 502,

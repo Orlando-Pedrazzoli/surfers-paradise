@@ -62,6 +62,8 @@ export interface IOrderPayment {
   method: PaymentMethod;
   status: PaymentStatus;
   // Online (Pagar.me)
+  mpOrderId?: string;
+  mpPaymentId?: string;
   pagarmeOrderId?: string;
   pagarmeChargeId?: string;
   installments?: number;
