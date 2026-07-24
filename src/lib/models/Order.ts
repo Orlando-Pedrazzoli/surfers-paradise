@@ -149,7 +149,10 @@ orderSchema.index({ 'payment.status': 1 });
 orderSchema.index({ createdAt: -1 });
 
 // Geração de orderNumber se não fornecido
-orderSchema.pre('save', async function () {
+// ⚠️ pre('validate'), não pre('save'): orderNumber é required e a validação
+// do Mongoose roda ANTES dos hooks de save — no Mongoose 9 gerar o campo em
+// pre('save') falha com "Path `orderNumber` is required".
+orderSchema.pre('validate', function () {
   if (!this.orderNumber) {
     const prefix = this.channel === 'pos' ? 'POS' : 'WEB';
     const now = new Date();

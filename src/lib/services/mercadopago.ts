@@ -180,6 +180,26 @@ async function mpRequest<T>(
       (data as Record<string, any>)?.message ||
       (data as Record<string, any>)?.errors?.[0]?.message ||
       `Mercado Pago respondeu ${res.status}`;
+    // 🔍 Diagnóstico: loga o payload enviado (token de cartão mascarado)
+    // para comparar com os exemplos oficiais quando a API rejeita.
+    if (body !== undefined) {
+      try {
+        const masked = JSON.parse(JSON.stringify(body));
+        const pm = masked?.transactions?.payments?.[0]?.payment_method;
+        if (pm?.token) pm.token = `${String(pm.token).slice(0, 6)}…`;
+        console.error(
+          '[MP] request rejeitado',
+          res.status,
+          path,
+          '\npayload:',
+          JSON.stringify(masked, null, 2),
+          '\nresposta:',
+          JSON.stringify(data, null, 2),
+        );
+      } catch {
+        /* log é best-effort */
+      }
+    }
     throw new MercadoPagoError(message, res.status, data);
   }
   return data as T;

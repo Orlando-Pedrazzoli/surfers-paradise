@@ -38,16 +38,20 @@ const onlyDigits = (s: string) => s.replace(/\D/g, '');
 
 function detectBrand(num: string): string {
   const n = onlyDigits(num);
-  if (/^4/.test(n)) return 'Visa';
-  if (/^(5[1-5]|2[2-7])/.test(n)) return 'Mastercard';
-  if (/^3[47]/.test(n)) return 'Amex';
+  // Ordem importa: os BINs da Elo colidem com faixas Visa (4xxx) e
+  // Mastercard (50xx) — Elo e Hipercard são testados PRIMEIRO.
   if (
-    /^(4011|4312|4389|438935|451416|457393|504175|5067|5090|636297|636368)/.test(
+    /^(401178|401179|431274|438935|451416|457393|457631|457632|504175|506699|5067|509|627780|636297|636368|650|6516|6550)/.test(
       n,
     )
   )
     return 'Elo';
   if (/^(606282|3841)/.test(n)) return 'Hipercard';
+  if (/^3[47]/.test(n)) return 'Amex';
+  if (/^4/.test(n)) return 'Visa';
+  // Mastercard: 51–55, 22–27 e a faixa 50 usada por cartões de teste do MP
+  // (ex.: 5031 43...) que não pertence aos BINs Elo já capturados acima.
+  if (/^(5[0-5]|2[2-7])/.test(n)) return 'Mastercard';
   return '';
 }
 
