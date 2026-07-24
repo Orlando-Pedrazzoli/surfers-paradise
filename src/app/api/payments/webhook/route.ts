@@ -16,6 +16,7 @@
 // Herda da versão Pagar.me: transições paid → estoque + e-mail;
 // refund → restaura estoque; failed/expired → marca failed.
 
+import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
@@ -50,25 +51,47 @@ export async function POST(request: Request) {
   }
   const event = parseWebhookEvent(payload, url.searchParams);
 
-  // 2. Autenticação (assinatura HMAC sobre data.id + x-request-id + ts).
-  // IMPORTANTE (spec oficial): o manifest usa o data.id da QUERY STRING da
-  // URL de notificação — não o do corpo. Fallback para o corpo apenas se a
-  // query não trouxer o parâmetro.
+  // 2. Autenticação em DUAS vias (qualquer uma basta):
+  //
+  // (a) Assinatura HMAC do header x-signature, conforme a documentação
+  //     (manifest sobre data.id da query string + x-request-id + ts).
+  // (b) TOKEN SECRETO NA URL (?token=...), cadastrado junto com a URL no
+  //     painel do MP e conferido em tempo constante contra MP_WEBHOOK_TOKEN.
+  //
+  // Por que (b) existe: há um bug conhecido do MP em que o v1 das
+  // notificações REAIS não corresponde a nenhum manifest documentado com o
+  // secret do painel (a simulação assina certo; os envios reais, não) —
+  // problema recorrente reportado pela comunidade e admitido pelo suporte.
+  // O token na URL é o contorno padrão. Segurança preservada em camadas:
+  // a URL com o token só é conhecida pelo painel do MP e pelas envs, e o
+  // handler NUNCA confia no payload — o estado real é sempre reconsultado
+  // via GET /v1/orders com o Access Token. Uma notificação forjada, no
+  // pior caso, dispara uma consulta; não muda estado.
   const sigDataId = url.searchParams.get('data.id') ?? event.dataId ?? null;
-  // Diagnóstico de 401: a query string do request real do MP importa para
-  // reconstruir o manifest — logada aqui porque só a rota vê a URL.
-  const rawQuery = url.search;
-  const authentic = validateWebhookSignature({
+  const hmacOk = validateWebhookSignature({
     xSignature: request.headers.get('x-signature'),
     xRequestId: request.headers.get('x-request-id'),
     dataId: sigDataId,
   });
-  if (!authentic) {
-    console.warn(
-      '[MP Webhook] 401 — query string do request:',
-      rawQuery || '(vazia)',
-    );
+
+  let tokenOk = false;
+  const expectedToken = process.env.MP_WEBHOOK_TOKEN || '';
+  if (expectedToken) {
+    const gotToken = url.searchParams.get('token') || '';
+    const a = Buffer.from(gotToken);
+    const b = Buffer.from(expectedToken);
+    tokenOk = a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+
+  if (!hmacOk && !tokenOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!hmacOk && tokenOk) {
+    // Visibilidade: quando o MP corrigir a assinatura, este log some e
+    // dá para remover o token da URL se quisermos voltar a HMAC puro.
+    console.info(
+      '[MP Webhook] autenticado via token de URL (HMAC divergente — bug conhecido do MP)',
+    );
   }
 
   if (!event.dataId) {
