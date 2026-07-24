@@ -196,7 +196,9 @@ export default function PaymentForm({
   async function handleBoleto() {
     const data = await postCheckout('/api/payments/boleto');
     if (data?.boleto && data.orderNumber) {
-      onOrderCreated?.(data.orderNumber);
+      // NÃO limpar o carrinho aqui: clearCart faz o checkout renderizar
+      // "carrinho vazio" e desmonta a tela do boleto antes de aparecer.
+      // Mesmo comportamento do PIX pendente.
       setBoleto({ ...data.boleto, orderNumber: data.orderNumber });
     }
   }
