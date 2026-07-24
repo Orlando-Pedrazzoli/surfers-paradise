@@ -26,6 +26,7 @@ import {
   isPaidStatus,
   isFailedStatus,
   isRefundedStatus,
+  MercadoPagoError,
 } from '@/lib/services/mercadopago';
 import { sendOrderConfirmation } from '@/lib/services/email';
 import { processOrderStock, restoreOrderStock } from '@/lib/services/inventory';
@@ -75,8 +76,14 @@ export async function POST(request: Request) {
     try {
       gw = await getOrder(event.dataId);
     } catch (e) {
+      // 404 = o recurso não existe (ex.: "Simular notificação" com ID
+      // fictício, ou notificação de outra aplicação). Retries não ajudam:
+      // confirma o recebimento e encerra.
+      if (e instanceof MercadoPagoError && e.status === 404) {
+        return NextResponse.json({ received: true, matched: false });
+      }
       console.error('[MP Webhook] falha ao consultar order:', event.dataId, e);
-      // 500 → o MP reagenda o reenvio; não perdemos o evento
+      // Erro transitório (rede/5xx do MP) → 500 → o MP reagenda o reenvio
       return NextResponse.json({ error: 'gateway' }, { status: 500 });
     }
 
