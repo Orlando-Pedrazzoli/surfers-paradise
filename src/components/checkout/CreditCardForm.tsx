@@ -2,9 +2,13 @@
 // v2 (Mercado Pago): tokenização via POST /v1/card_tokens com a Public Key;
 // a bandeira detectada localmente vira o paymentMethodId exigido pela API
 // de Orders (visa | master | amex | elo | hipercard).
+// v3: DEVICE FINGERPRINT — carrega o security.js oficial do MP, que define
+// window.MP_DEVICE_SESSION_ID; o valor sobe com o token (deviceId) e o
+// backend repassa no header X-meli-session-id. Recomendação oficial para
+// aumentar a taxa de aprovação de cartão em produção.
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, Lock, Loader2 } from 'lucide-react';
 import { company } from '@/lib/config/company';
 
@@ -17,10 +21,31 @@ interface CreditCardFormProps {
     paymentMethodId: string;
     installments: number;
     holderName: string;
+    deviceId?: string; // window.MP_DEVICE_SESSION_ID (security.js do MP)
   }) => void | Promise<void>;
 }
 
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_MP_PUBLIC_KEY;
+
+const MP_SECURITY_SRC = 'https://www.mercadopago.com/v2/security.js';
+
+declare global {
+  interface Window {
+    MP_DEVICE_SESSION_ID?: string;
+  }
+}
+
+/** Injeta o script de device fingerprint do MP uma única vez. */
+function useMpDeviceId() {
+  useEffect(() => {
+    if (document.querySelector(`script[src="${MP_SECURITY_SRC}"]`)) return;
+    const script = document.createElement('script');
+    script.src = MP_SECURITY_SRC;
+    script.setAttribute('view', 'checkout');
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
+}
 
 /** Bandeira exibida na UI → payment_method.id da API de Orders do MP. */
 const BRAND_TO_MP_ID: Record<string, string> = {
@@ -85,6 +110,8 @@ export default function CreditCardForm({
   const [installments, setInstallments] = useState(1);
   const [tokenizing, setTokenizing] = useState(false);
   const [error, setError] = useState('');
+
+  useMpDeviceId();
 
   const brand = useMemo(() => detectBrand(number), [number]);
 
@@ -183,6 +210,7 @@ export default function CreditCardForm({
         paymentMethodId: BRAND_TO_MP_ID[brand],
         installments,
         holderName: name.trim(),
+        deviceId: window.MP_DEVICE_SESSION_ID, // best-effort (pode ser undefined)
       });
     } catch (err) {
       setError(

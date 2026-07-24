@@ -59,6 +59,11 @@ export type MpPaymentInput =
   | {
       method: 'pix';
       expiresInSeconds?: number; // padrão 3600 (1h); MP aceita 30min–30d
+    }
+  | {
+      method: 'boleto';
+      /** Vencimento em dias (ISO "PnD"). MP aceita 1–30; padrão/recomendado 3. */
+      expiresInDays?: number;
     };
 
 export interface CreateOrderInput {
@@ -68,6 +73,13 @@ export interface CreateOrderInput {
   shippingAddress?: MpAddressInput;
   items?: MpItemInput[]; // informativo (não usado no MVP do payload)
   payment: MpPaymentInput;
+  /**
+   * Device fingerprint do comprador (window.MP_DEVICE_SESSION_ID, gerado
+   * pelo script security.js do MP no checkout). Enviado no header
+   * X-meli-session-id — recomendação oficial para melhorar a taxa de
+   * aprovação de cartão em produção. Opcional; omitido se ausente.
+   */
+  deviceId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +90,10 @@ export interface MpOrderResult {
   id: string; // ORD...
   status: string; // created | processed | action_required | failed | ...
   statusDetail?: string; // accredited | waiting_transfer | ...
+  /** external_reference devolvido pelo MP (= orderNumber interno). Usado
+   *  como vínculo de FALLBACK no webhook quando o mpOrderId ainda não foi
+   *  persistido no pedido local (corrida webhook × save). */
+  externalReference?: string;
   payment?: {
     id: string; // PAY...
     status: string;
@@ -87,6 +103,11 @@ export interface MpOrderResult {
     qrCode: string; // copia-e-cola (EMV)
     qrCodeBase64: string; // imagem PNG em base64 (sem prefixo data:)
     ticketUrl: string; // página hospedada do MP com QR + instruções
+  };
+  boleto?: {
+    ticketUrl: string; // página do MP com o boleto para abrir/imprimir
+    digitableLine: string; // linha digitável (o que o cliente copia e paga)
+    barcodeContent: string; // código de barras EAN
   };
 }
 
@@ -128,10 +149,10 @@ function splitName(full: string): { first: string; last: string } {
   return { first: parts[0], last: parts.slice(1).join(' ') };
 }
 
-function buildPayer(customer: MpCustomerInput) {
+function buildPayer(customer: MpCustomerInput, address?: MpAddressInput) {
   const doc = onlyDigits(customer.document);
   const { first, last } = splitName(customer.name);
-  return {
+  const payer: Record<string, unknown> = {
     email: customer.email,
     first_name: first,
     last_name: last,
@@ -140,6 +161,21 @@ function buildPayer(customer: MpCustomerInput) {
       number: doc,
     },
   };
+  // Endereço do pagador: OBRIGATÓRIO para boleto (zip_code, street_name,
+  // street_number, neighborhood, city, state com 2 letras). Para cartão e
+  // PIX é opcional, mas ajuda o antifraude do MP — incluímos sempre que
+  // disponível.
+  if (address) {
+    payer.address = {
+      zip_code: onlyDigits(address.zipCode),
+      street_name: address.street,
+      street_number: address.number || 'N/A',
+      neighborhood: address.neighborhood,
+      city: address.city,
+      state: (address.state || '').toUpperCase().slice(0, 2),
+    };
+  }
+  return payer;
 }
 
 /** Duração ISO 8601 para expiration_time do PIX (ex.: 3600 → "PT1H"). */
@@ -153,11 +189,18 @@ function toIsoDuration(seconds: number): string {
   return out === 'PT' ? 'PT30M' : out;
 }
 
+/** Duração ISO 8601 em dias para expiration_time do BOLETO ("P3D"). */
+function toIsoDayDuration(days: number): string {
+  const d = Math.max(1, Math.min(Math.round(days), 30)); // MP aceita 1–30
+  return `P${d}D`;
+}
+
 async function mpRequest<T>(
   method: 'GET' | 'POST',
   path: string,
   body?: unknown,
   idempotencyKey?: string,
+  deviceId?: string,
 ): Promise<T> {
   const headers: Record<string, string> = {
     accept: 'application/json',
@@ -165,6 +208,8 @@ async function mpRequest<T>(
   };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (idempotencyKey) headers['X-Idempotency-Key'] = idempotencyKey;
+  // Device fingerprint (security.js) — melhora a aprovação de cartão.
+  if (deviceId) headers['X-meli-session-id'] = deviceId;
 
   const res = await fetch(`${MP_API}${path}`, {
     method,
@@ -249,6 +294,9 @@ function normalizeOrder(data: Record<string, any>): MpOrderResult {
     id: String(data?.id || ''),
     status: String(data?.status || ''),
     statusDetail: data?.status_detail ? String(data.status_detail) : undefined,
+    externalReference: data?.external_reference
+      ? String(data.external_reference)
+      : undefined,
   };
 
   if (payment?.id) {
@@ -261,7 +309,15 @@ function normalizeOrder(data: Record<string, any>): MpOrderResult {
     };
   }
 
-  if (pm?.qr_code || pm?.qr_code_base64 || pm?.ticket_url) {
+  // BOLETO (type ticket): identificado pela linha digitável / barcode.
+  // Precisa ser testado ANTES do PIX porque o boleto também tem ticket_url.
+  if (pm?.digitable_line || pm?.barcode_content) {
+    result.boleto = {
+      ticketUrl: String(pm.ticket_url || ''),
+      digitableLine: String(pm.digitable_line || ''),
+      barcodeContent: String(pm.barcode_content || ''),
+    };
+  } else if (pm?.qr_code || pm?.qr_code_base64 || pm?.ticket_url) {
     result.pix = {
       qrCode: String(pm.qr_code || ''),
       qrCodeBase64: String(pm.qr_code_base64 || ''),
@@ -290,10 +346,18 @@ export async function createOrder(
       token: input.payment.cardToken,
       installments: input.payment.installments,
     };
-  } else {
+  } else if (input.payment.method === 'pix') {
     paymentNode.payment_method = { id: 'pix', type: 'bank_transfer' };
     paymentNode.expiration_time = toIsoDuration(
       input.payment.expiresInSeconds ?? 3600,
+    );
+  } else {
+    // BOLETO — payload oficial da API de Orders: id "boleto", type "ticket".
+    // Vencimento padrão de 3 dias ("P3D", recomendação da documentação para
+    // não conflitar com a compensação de até 2h úteis).
+    paymentNode.payment_method = { id: 'boleto', type: 'ticket' };
+    paymentNode.expiration_time = toIsoDayDuration(
+      input.payment.expiresInDays ?? 3,
     );
   }
 
@@ -302,7 +366,7 @@ export async function createOrder(
     processing_mode: 'automatic',
     total_amount: amount,
     external_reference: input.code,
-    payer: buildPayer(input.customer),
+    payer: buildPayer(input.customer, input.shippingAddress),
     transactions: { payments: [paymentNode] },
   };
 
@@ -316,6 +380,7 @@ export async function createOrder(
     '/v1/orders',
     body,
     idempotencyKey,
+    input.deviceId,
   );
   return normalizeOrder(data);
 }

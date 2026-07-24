@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   const isPollable =
     order.payment.status === 'pending' &&
     !!mpOrderId &&
-    order.payment.method === 'pix';
+    (order.payment.method === 'pix' || order.payment.method === 'boleto');
 
   const sinceLastCheck = Date.now() - new Date(order.updatedAt).getTime();
 

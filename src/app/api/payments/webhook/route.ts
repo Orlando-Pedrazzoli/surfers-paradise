@@ -72,14 +72,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'gateway' }, { status: 500 });
     }
 
-    // 4. Localiza o pedido local (por mpOrderId ou external_reference não
-    // disponível aqui — o id ORD... é o vínculo primário)
-    const order = await Order.findOne({
-      $or: [
-        { 'payment.mpOrderId': gw.id },
-        { 'payment.mpPaymentId': gw.payment?.id || '__none__' },
-      ],
-    });
+    // 4. Localiza o pedido local. Vínculo primário: mpOrderId/mpPaymentId.
+    // FALLBACK: external_reference (= orderNumber) — cobre a corrida em que
+    // a notificação chega ANTES de o checkout persistir o mpOrderId no
+    // pedido (sem isto o webhook devolvia 200 matched:false e o MP não
+    // reenviava, perdendo a confirmação).
+    const lookups: Record<string, unknown>[] = [
+      { 'payment.mpOrderId': gw.id },
+      { 'payment.mpPaymentId': gw.payment?.id || '__none__' },
+    ];
+    if (gw.externalReference) {
+      lookups.push({ orderNumber: gw.externalReference });
+    }
+    const order = await Order.findOne({ $or: lookups });
+
+    if (order && !order.payment.mpOrderId) {
+      // Vinculado pelo fallback — persiste o vínculo primário para os
+      // próximos eventos e para o fallback ativo do /payments/status.
+      order.payment.mpOrderId = gw.id;
+      await order.save().catch(() => {});
+    }
 
     if (!order) {
       console.warn('[MP Webhook] pedido não encontrado:', {

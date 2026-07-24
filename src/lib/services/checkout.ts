@@ -11,8 +11,10 @@
 //   tokenização feita no front com a Public Key do MP.
 // - PIX: qr_code (copia-e-cola) + qr_code_base64 (imagem, salva como data
 //   URI em pixQrCode para o <img> do PixPayment funcionar sem mudanças).
-// - BOLETO desativado nesta migração (pode voltar via MP payment_method
-//   bolbradesco/type ticket quando o negócio pedir).
+// v7: BOLETO reativado via API de Orders (payment_method id 'boleto',
+//   type 'ticket', expiration_time P3D). payer.address é obrigatório para
+//   boleto — mapeado do shippingAddress. Desconto boletoDiscountPercent
+//   aplicado como no PIX.
 //
 // v2: desconto (cupom + método) distribuído proporcionalmente nos itens
 // enviados à Pagar.me — a Orders API V5 não tem campo de desconto e cobra
@@ -102,6 +104,9 @@ const baseSchema = z.object({
   paymentMethodId: z.string().optional(), // bandeira MP (visa/master/...)
   installments: z.number().int().positive().optional(),
   ip: z.string().optional(),
+  // Device fingerprint do MP (window.MP_DEVICE_SESSION_ID via security.js).
+  // Repassado ao gateway no header X-meli-session-id — melhora aprovação.
+  deviceId: z.string().optional(),
 });
 
 export interface CheckoutResult {
@@ -110,6 +115,12 @@ export interface CheckoutResult {
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/** Vencimento do boleto em dias ("P3D" no gateway; usado tb no dueAt da UI). */
+const BOLETO_DUE_DAYS = 3;
+
+/** Expiração do PIX em segundos (mesmo valor enviado ao gateway e à UI). */
+const PIX_EXPIRES_SECONDS = 3600;
 
 type CartItem = z.infer<typeof itemSchema>;
 
@@ -333,13 +344,6 @@ export async function processCheckout(
     };
   }
 
-  if (method === 'boleto') {
-    return {
-      status: 400,
-      body: { error: 'Boleto temporariamente indisponível.' },
-    };
-  }
-
   await connectDB();
 
   // 1. Revalidação server-side dos itens: existência, disponibilidade,
@@ -366,8 +370,11 @@ export async function processCheckout(
   if (method === 'pix') {
     methodDiscount =
       (subtotal - couponDiscount) * (company.payment.pixDiscountPercent / 100);
+  } else if (method === 'boleto') {
+    methodDiscount =
+      (subtotal - couponDiscount) *
+      (company.payment.boletoDiscountPercent / 100);
   }
-  // (boleto desativado na migração para o Mercado Pago — early-return acima)
 
   const totalDiscount = round2(couponDiscount + methodDiscount);
   const productsTotal = round2(subtotal - totalDiscount); // itens após desconto
@@ -453,7 +460,9 @@ export async function processCheckout(
             paymentMethodId: input.paymentMethodId!,
             installments,
           }
-        : { method: 'pix' as const, expiresInSeconds: 3600 };
+        : method === 'pix'
+          ? { method: 'pix' as const, expiresInSeconds: PIX_EXPIRES_SECONDS }
+          : { method: 'boleto' as const, expiresInDays: BOLETO_DUE_DAYS };
 
     const pg = await createMpOrder({
       code: order.orderNumber,
@@ -466,6 +475,7 @@ export async function processCheckout(
       },
       shippingAddress: mapAddress(input.shippingAddress),
       payment,
+      deviceId: input.deviceId,
     });
 
     // 4a. Consumo do cupom: incremento atômico após sucesso no gateway.
@@ -490,6 +500,13 @@ export async function processCheckout(
         ? `data:image/png;base64,${pg.pix.qrCodeBase64}`
         : pg.pix.ticketUrl;
       order.payment.pixCopyPaste = pg.pix.qrCode; // copia-e-cola (EMV)
+    }
+
+    if (pg.boleto) {
+      order.payment.boletoUrl = pg.boleto.ticketUrl;
+      // Linha digitável é o que o cliente usa para pagar (o barcode EAN
+      // fica disponível no ticket_url para leitura ótica).
+      order.payment.boletoBarcode = pg.boleto.digitableLine;
     }
 
     if (isPaidStatus(pg)) {
@@ -532,6 +549,21 @@ export async function processCheckout(
           ? {
               qrCode: pg.pix.qrCode,
               qrCodeUrl: order.payment.pixQrCode,
+              // Ativa o countdown + estado "expirado" do PixPayment
+              // (sem isto o front ficava em polling infinito).
+              expiresAt: new Date(
+                Date.now() + PIX_EXPIRES_SECONDS * 1000,
+              ).toISOString(),
+            }
+          : undefined,
+        boleto: pg.boleto
+          ? {
+              url: pg.boleto.ticketUrl,
+              line: pg.boleto.digitableLine,
+              barcode: pg.boleto.barcodeContent,
+              dueAt: new Date(
+                Date.now() + BOLETO_DUE_DAYS * 24 * 60 * 60 * 1000,
+              ).toISOString(),
             }
           : undefined,
       },
