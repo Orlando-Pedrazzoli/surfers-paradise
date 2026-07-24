@@ -76,10 +76,16 @@ export async function POST(request: Request) {
     try {
       gw = await getOrder(event.dataId);
     } catch (e) {
-      // 404 = o recurso não existe (ex.: "Simular notificação" com ID
-      // fictício, ou notificação de outra aplicação). Retries não ajudam:
-      // confirma o recebimento e encerra.
-      if (e instanceof MercadoPagoError && e.status === 404) {
+      // 4xx = o recurso não pode ser consultado por razão permanente:
+      // não existe (404), ID malformado (400 — ex.: "Simular notificação"
+      // com ID fictício), ou pertence a outra aplicação (403). Retries não
+      // ajudam: confirma o recebimento e encerra.
+      if (e instanceof MercadoPagoError && e.status >= 400 && e.status < 500) {
+        console.warn(
+          '[MP Webhook] order não consultável (4xx), confirmando recebimento:',
+          event.dataId,
+          e.status,
+        );
         return NextResponse.json({ received: true, matched: false });
       }
       console.error('[MP Webhook] falha ao consultar order:', event.dataId, e);
