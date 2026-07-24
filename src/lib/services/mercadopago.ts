@@ -449,8 +449,20 @@ export function validateWebhookSignature(params: {
 
   const a = Buffer.from(expected);
   const b = Buffer.from(v1);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+  const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+  if (!valid) {
+    // Diagnóstico (NÃO loga o secret): permite comparar o manifest que
+    // montámos com o esperado pela documentação quando um 401 ocorrer.
+    console.warn('[MP Webhook] assinatura inválida', {
+      manifest,
+      tsRecebido: ts,
+      v1Prefix: v1.slice(0, 8),
+      expectedPrefix: expected.slice(0, 8),
+      secretLen: secret.length,
+    });
+  }
+  return valid;
 }
 
 /** Extrai o evento do payload/query do webhook (formatos variam por tópico). */

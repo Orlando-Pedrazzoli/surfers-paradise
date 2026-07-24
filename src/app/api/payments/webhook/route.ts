@@ -49,11 +49,15 @@ export async function POST(request: Request) {
   }
   const event = parseWebhookEvent(payload, url.searchParams);
 
-  // 2. Autenticação (assinatura HMAC sobre data.id + x-request-id + ts)
+  // 2. Autenticação (assinatura HMAC sobre data.id + x-request-id + ts).
+  // IMPORTANTE (spec oficial): o manifest usa o data.id da QUERY STRING da
+  // URL de notificação — não o do corpo. Fallback para o corpo apenas se a
+  // query não trouxer o parâmetro.
+  const sigDataId = url.searchParams.get('data.id') ?? event.dataId ?? null;
   const authentic = validateWebhookSignature({
     xSignature: request.headers.get('x-signature'),
     xRequestId: request.headers.get('x-request-id'),
-    dataId: event.dataId || null,
+    dataId: sigDataId,
   });
   if (!authentic) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
