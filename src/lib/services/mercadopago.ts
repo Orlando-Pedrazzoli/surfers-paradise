@@ -437,32 +437,42 @@ export function validateWebhookSignature(params: {
   const v1 = parts['v1'];
   if (!ts || !v1) return false;
 
-  let manifest = '';
-  if (params.dataId) manifest += `id:${params.dataId.toLowerCase()};`;
-  if (params.xRequestId) manifest += `request-id:${params.xRequestId};`;
-  manifest += `ts:${ts};`;
+  // A documentação manda usar o data.id em minúsculas quando alfanumérico,
+  // mas na prática o tópico Order assina com o ID TAL COMO VEM (ULID
+  // maiúsculo — ex.: ORD01...). Aceitamos qualquer uma das variantes,
+  // ambas verificadas em tempo constante.
+  const idVariants = params.dataId
+    ? [...new Set([params.dataId, params.dataId.toLowerCase()])]
+    : [null];
 
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(manifest)
-    .digest('hex');
-
-  const a = Buffer.from(expected);
   const b = Buffer.from(v1);
-  const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
 
-  if (!valid) {
-    // Diagnóstico (NÃO loga o secret): permite comparar o manifest que
-    // montámos com o esperado pela documentação quando um 401 ocorrer.
-    console.warn('[MP Webhook] assinatura inválida', {
-      manifest,
-      tsRecebido: ts,
-      v1Prefix: v1.slice(0, 8),
-      expectedPrefix: expected.slice(0, 8),
-      secretLen: secret.length,
-    });
+  for (const idVariant of idVariants) {
+    let manifest = '';
+    if (idVariant) manifest += `id:${idVariant};`;
+    if (params.xRequestId) manifest += `request-id:${params.xRequestId};`;
+    manifest += `ts:${ts};`;
+
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(manifest)
+      .digest('hex');
+
+    const a = Buffer.from(expected);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      return true;
+    }
   }
-  return valid;
+
+  // Diagnóstico (NÃO loga o secret): permite comparar os manifests que
+  // montámos com o esperado pela documentação quando um 401 ocorrer.
+  console.warn('[MP Webhook] assinatura inválida', {
+    dataId: params.dataId,
+    xRequestId: params.xRequestId,
+    xSignature: params.xSignature,
+    secretLen: secret.length,
+  });
+  return false;
 }
 
 /** Extrai o evento do payload/query do webhook (formatos variam por tópico). */

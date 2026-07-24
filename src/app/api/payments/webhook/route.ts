@@ -55,12 +55,19 @@ export async function POST(request: Request) {
   // URL de notificação — não o do corpo. Fallback para o corpo apenas se a
   // query não trouxer o parâmetro.
   const sigDataId = url.searchParams.get('data.id') ?? event.dataId ?? null;
+  // Diagnóstico de 401: a query string do request real do MP importa para
+  // reconstruir o manifest — logada aqui porque só a rota vê a URL.
+  const rawQuery = url.search;
   const authentic = validateWebhookSignature({
     xSignature: request.headers.get('x-signature'),
     xRequestId: request.headers.get('x-request-id'),
     dataId: sigDataId,
   });
   if (!authentic) {
+    console.warn(
+      '[MP Webhook] 401 — query string do request:',
+      rawQuery || '(vazia)',
+    );
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
