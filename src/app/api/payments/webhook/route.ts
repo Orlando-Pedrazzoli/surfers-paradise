@@ -32,6 +32,10 @@ import { processOrderStock, restoreOrderStock } from '@/lib/services/inventory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Cold start + conexão fria ao Atlas + GET /v1/orders no MP podem passar o
+// limite padrão da função na Vercel (o MP registava 502 e reenviava).
+// 30s dá folga de sobra; o caminho quente responde em <2s.
+export const maxDuration = 30;
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
