@@ -570,7 +570,30 @@ export async function processCheckout(
     };
   } catch (err) {
     order.payment.status = 'failed';
+    // Se o MP criou a order mas o pagamento falhou (ex.: cartão recusado),
+    // o corpo de erro traz a order — vincula o ID para o webhook conseguir
+    // casar eventuais notificações desta order falhada.
+    if (err instanceof MercadoPagoError) {
+      const failedOrderId = (err.details as Record<string, any>)?.data?.id;
+      if (failedOrderId) order.payment.mpOrderId = String(failedOrderId);
+    }
     await order.save().catch(() => {});
+
+    // 402 = transação recusada pelo emissor/gateway (não é erro do site).
+    // Devolve o mesmo contrato do fluxo normal de recusa: o PaymentForm
+    // mostra "Pagamento não autorizado pelo emissor do cartão...".
+    if (err instanceof MercadoPagoError && err.status === 402) {
+      return {
+        status: 402,
+        body: {
+          success: false,
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          paymentStatus: 'failed',
+        },
+      };
+    }
+
     const message =
       err instanceof MercadoPagoError
         ? err.message
