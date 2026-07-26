@@ -39,7 +39,6 @@ const subscriberSchema = new Schema<ISubscriber>(
   { timestamps: true },
 );
 
-subscriberSchema.index({ email: 1 });
 subscriberSchema.index({ createdAt: -1 });
 
 const Subscriber: Model<ISubscriber> =

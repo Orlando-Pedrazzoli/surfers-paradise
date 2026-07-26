@@ -1,3 +1,10 @@
+// 📄 src/app/api/admin/dashboard-stats/route.ts
+// v2: AUTENTICAÇÃO — requireAdminGuard (a rota estava aberta: qualquer um,
+//     até deslogado, conseguia puxar receita, contagens e alertas da loja).
+// v2: sweep lazy de pedidos expirados ANTES do cálculo das stats —
+//     pendingOrders e receita já saem corretos assim que a dashboard
+//     carrega, sem depender do horário do Vercel Cron.
+
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db/connect';
 import Product from '@/lib/models/Product';
@@ -6,6 +13,8 @@ import User from '@/lib/models/User';
 import Category from '@/lib/models/Category';
 import Brand from '@/lib/models/Brand';
 import Supplier from '@/lib/models/Supplier';
+import { requireAdminGuard } from '@/lib/auth/guards';
+import { cancelExpiredOrders } from '@/lib/services/orderExpiration';
 
 const LOW_STOCK_THRESHOLD = 3;
 
@@ -15,7 +24,15 @@ void _deps;
 
 export async function GET() {
   try {
+    const guard = await requireAdminGuard();
+    if (guard.response) return guard.response;
+
     await connectDB();
+
+    // Sweep lazy: cancela pedidos online vencidos ANTES de calcular as
+    // stats — pendingOrders e receita já saem corretos, sem precisar de
+    // refresh manual depois do cancelamento automático.
+    await cancelExpiredOrders();
 
     // Início do dia (00:00) e início do mês
     const now = new Date();

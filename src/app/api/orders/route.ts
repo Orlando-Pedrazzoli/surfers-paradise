@@ -8,6 +8,11 @@
 // v2: pedido POS criado com stockProcessed: true — o decremento acontece na
 //     transação desta rota, e o flag harmoniza com o inventory.ts para o
 //     cancel/refund devolver estoque exatamente uma vez.
+// v3: sweep lazy de pedidos expirados no GET admin — cancela pedidos online
+//     não pagos vencidos ANTES de listar, garantindo que o admin nunca vê
+//     pedido expirado como "Aguardando" (rede de segurança adicional ao
+//     Vercel Cron diário). Só no painel admin: cliente listando os próprios
+//     pedidos não paga o custo da varredura.
 
 import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
@@ -18,6 +23,7 @@ import User from '@/lib/models/User';
 import Coupon from '@/lib/models/Coupon';
 import { OrderChannel, PaymentMethod } from '@/lib/types/order';
 import { requireAuthGuard, requireAdminGuard } from '@/lib/auth/guards';
+import { cancelExpiredOrders } from '@/lib/services/orderExpiration';
 
 const _deps = [Product, User, Coupon];
 void _deps;
@@ -74,6 +80,14 @@ export async function GET(request: NextRequest) {
     const isAdmin = guard.role === 'admin';
 
     await connectDB();
+
+    // Sweep lazy: cancela pedidos online vencidos antes de listar — o
+    // admin nunca vê pedido expirado como "Aguardando" (rede de segurança
+    // adicional ao Vercel Cron diário). Só no painel admin: cliente
+    // listando os próprios pedidos não paga o custo da varredura.
+    if (isAdmin) {
+      await cancelExpiredOrders();
+    }
 
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');

@@ -30,8 +30,6 @@ const blogPostSchema = new Schema<IBlogPost>(
   { timestamps: true },
 );
 
-blogPostSchema.index({ slug: 1 });
-
 const BlogPost: Model<IBlogPost> =
   mongoose.models.BlogPost ||
   mongoose.model<IBlogPost>('BlogPost', blogPostSchema);

@@ -77,7 +77,6 @@ const orderSchema = new Schema<IOrder>(
         type: String,
         enum: ['pending', 'paid', 'failed', 'refunded'],
         default: 'pending',
-        index: true,
       },
       // Online — Mercado Pago (gateway atual)
       mpOrderId: { type: String, default: '' },

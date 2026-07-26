@@ -7,13 +7,19 @@
 // v3: nome/e-mail pré-preenchidos para cliente logado.
 // v3: CPF validado por dígitos verificadores no client — CPF inválido é
 //     barrado aqui, não no antifraude no fim do funil.
-// v3: removido disabled morto no botão de continuar.
 // v4: onPricesChanged ligado ao updateItemPrices do CartProvider — no 409
 //     PRICES_CHANGED o carrinho sincroniza com os preços do banco e o
 //     resumo/totais atualizam na hora.
+// v5: UX DO ENVIO — a seleção de frete saiu da sidebar (invisível em mobile,
+//     fora do fluxo em desktop) e virou seção explícita no fluxo principal,
+//     entre o endereço e o botão de continuar. Opção mais barata é
+//     PRÉ-SELECIONADA automaticamente quando as cotações chegam — deixa de
+//     existir o estado "nenhum frete selecionado" no caminho feliz. Rede de
+//     segurança: sem seleção, o botão mostra erro claro + scroll suave até a
+//     seção. Sidebar agora só EXIBE o frete escolhido.
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useCart } from '@/lib/context/CartProvider';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -103,6 +109,9 @@ export default function CheckoutPage() {
   const [selectedShipping, setSelectedShipping] =
     useState<ShippingQuoteOption | null>(null);
 
+  // Âncora da seção de envio (scroll + highlight na rede de segurança)
+  const shippingSectionRef = useRef<HTMLDivElement | null>(null);
+
   const set = (k: keyof typeof emptyForm, v: string) =>
     setForm(f => ({ ...f, [k]: v }));
 
@@ -159,7 +168,18 @@ export default function CheckoutPage() {
     }
   }, [quotes, selectedShipping]);
 
+  // v5: PRÉ-SELEÇÃO AUTOMÁTICA — quando as cotações chegam e nada está
+  // selecionado, escolhe a mais barata (que também é a grátis, quando o
+  // frete grátis se aplica). O usuário só interage se QUISER outra opção.
+  useEffect(() => {
+    if (!selectedShipping && quotes.length > 0) {
+      const cheapest = quotes.find(q => q.cheapest) ?? quotes[0];
+      setSelectedShipping(cheapest);
+    }
+  }, [quotes, selectedShipping]);
+
   const shippingCost = selectedShipping?.finalPrice ?? 0;
+  const cepComplete = onlyDigits(form.cep).length === 8;
 
   async function lookupCep(cep: string) {
     const digits = onlyDigits(cep);
@@ -206,7 +226,13 @@ export default function CheckoutPage() {
       return;
     }
     if (!selectedShipping) {
-      setError('Selecione o método de envio no Resumo do Pedido.');
+      // Rede de segurança: só acontece se a cotação falhou/não retornou
+      // (a pré-seleção automática cobre o caminho feliz).
+      setError('Escolha um método de envio para continuar.');
+      shippingSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
       return;
     }
     setError('');
@@ -402,6 +428,31 @@ export default function CheckoutPage() {
                   />
                 </div>
 
+                {/* ─── v5: MÉTODO DE ENVIO no fluxo principal ─── */}
+                {cepComplete && (
+                  <div
+                    ref={shippingSectionRef}
+                    className='rounded-lg border border-gray-200 bg-gray-50 p-4'
+                  >
+                    <h3 className='mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900'>
+                      <Package size={16} className='text-[#FF6600]' />
+                      Método de Envio
+                      {selectedShipping && (
+                        <span className='rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700'>
+                          ✓ Selecionado
+                        </span>
+                      )}
+                    </h3>
+                    <ShippingOptions
+                      options={quotes}
+                      loading={quotesLoading}
+                      error={quotesError}
+                      selectedId={selectedShipping?.id}
+                      onSelect={setSelectedShipping}
+                    />
+                  </div>
+                )}
+
                 {error && (
                   <p className='rounded-md bg-red-50 px-3 py-2 text-sm text-red-600'>
                     {error}
@@ -414,11 +465,6 @@ export default function CheckoutPage() {
                 >
                   Continuar para pagamento
                 </button>
-                {onlyDigits(form.cep).length === 8 && !selectedShipping && (
-                  <p className='text-center text-xs text-gray-500'>
-                    👉 Selecione o método de envio no Resumo do Pedido
-                  </p>
-                )}
               </div>
             )}
           </div>
@@ -510,19 +556,23 @@ export default function CheckoutPage() {
             {/* Frete grátis: barra de progresso */}
             <FreeShippingProgress subtotal={subtotal} />
 
-            {/* Opções de envio (aparecem quando o CEP completa) */}
-            <div>
-              <h3 className='mb-2 text-sm font-semibold text-gray-900'>
-                Método de envio
-              </h3>
-              <ShippingOptions
-                options={quotes}
-                loading={quotesLoading}
-                error={quotesError}
-                selectedId={selectedShipping?.id}
-                onSelect={setSelectedShipping}
-              />
-            </div>
+            {/* v5: a sidebar só EXIBE o envio escolhido (seleção no fluxo principal) */}
+            {selectedShipping && (
+              <div className='flex items-start gap-2 rounded-lg border border-gray-200 bg-white p-3'>
+                <Package size={16} className='mt-0.5 shrink-0 text-[#FF6600]' />
+                <div className='min-w-0 text-sm'>
+                  <p className='font-medium text-gray-900'>
+                    {selectedShipping.company} — {selectedShipping.name}
+                  </p>
+                  <p className='text-xs text-gray-500'>
+                    até {selectedShipping.deliveryDays}{' '}
+                    {selectedShipping.deliveryDays === 1
+                      ? 'dia útil'
+                      : 'dias úteis'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className='border-t border-gray-200 pt-4 space-y-2'>
               <div className='flex justify-between text-sm'>
@@ -553,9 +603,7 @@ export default function CheckoutPage() {
                   )
                 ) : (
                   <span className='text-gray-400'>
-                    {onlyDigits(form.cep).length === 8
-                      ? 'Selecione acima'
-                      : 'Informe o CEP'}
+                    {cepComplete ? 'Calculando...' : 'Informe o CEP'}
                   </span>
                 )}
               </div>

@@ -42,8 +42,6 @@ const couponSchema = new Schema<ICoupon>(
   { timestamps: true },
 );
 
-couponSchema.index({ code: 1 });
-
 const Coupon: Model<ICoupon> =
   mongoose.models.Coupon || mongoose.model<ICoupon>('Coupon', couponSchema);
 
