@@ -24,10 +24,18 @@ import Link from 'next/link';
 import { useCart } from '@/lib/context/CartProvider';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
-import { ShoppingCart, MapPin, Pencil, Loader2, Package } from 'lucide-react';
+import {
+  ShoppingCart,
+  MapPin,
+  Pencil,
+  Loader2,
+  Package,
+  Tag,
+} from 'lucide-react';
 import PaymentForm from '@/components/checkout/PaymentForm';
 import ShippingOptions from '@/components/checkout/ShippingOptions';
 import FreeShippingProgress from '@/components/checkout/FreeShippingProgress';
+import CouponInput from '@/components/checkout/CouponInput';
 import {
   useShippingQuotes,
   type ShippingQuoteOption,
@@ -108,6 +116,7 @@ export default function CheckoutPage() {
   const [cepLoading, setCepLoading] = useState(false);
   const [selectedShipping, setSelectedShipping] =
     useState<ShippingQuoteOption | null>(null);
+  const [showCoupon, setShowCoupon] = useState(false);
 
   // Âncora da seção de envio (scroll + highlight na rede de segurança)
   const shippingSectionRef = useRef<HTMLDivElement | null>(null);
@@ -572,6 +581,20 @@ export default function CheckoutPage() {
                   </p>
                 </div>
               </div>
+            )}
+            {/* v6: Cupom de desconto — colapsado; expande no clique ou
+                quando já há cupom aplicado (chip do CouponInput) */}
+            {appliedCoupon || showCoupon ? (
+              <CouponInput />
+            ) : (
+              <button
+                type='button'
+                onClick={() => setShowCoupon(true)}
+                className='flex items-center gap-1.5 text-sm text-[#FF6600] hover:underline'
+              >
+                <Tag size={14} />
+                Tem um cupom de desconto?
+              </button>
             )}
 
             <div className='border-t border-gray-200 pt-4 space-y-2'>
