@@ -1,4 +1,11 @@
+// 📄 src/app/api/coupons/route.ts
+// v2 (cupons restritos por categoria/marca):
+// - POST aceita applicableCategories/applicableBrands — arrays de ObjectIds
+//   (strings) validados com mongoose.isValidObjectId. Arrays vazios ou
+//   ausentes = cupom de loja inteira (retrocompatível).
+
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db/connect';
 import Coupon from '@/lib/models/Coupon';
 import { auth } from '@/lib/auth/config';
@@ -7,6 +14,23 @@ async function isAdmin(): Promise<boolean> {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   return role === 'admin';
+}
+
+/**
+ * Normaliza e valida um array de ObjectIds vindo do client.
+ * Retorna null se o valor for inválido (não-array ou com id malformado).
+ * Ausente/undefined → [] (sem restrição).
+ */
+function parseIdArray(value: unknown): string[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string' || !mongoose.isValidObjectId(v)) return null;
+    ids.push(v);
+  }
+  // Dedup
+  return [...new Set(ids)];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -40,6 +64,8 @@ export async function GET(request: NextRequest) {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
+        .populate('applicableCategories', 'name slug')
+        .populate('applicableBrands', 'name slug')
         .lean(),
       Coupon.countDocuments(filter),
     ]);
@@ -85,6 +111,8 @@ export async function POST(request: NextRequest) {
       validFrom,
       validUntil,
       isActive,
+      applicableCategories,
+      applicableBrands,
     } = body;
 
     // Validação
@@ -125,6 +153,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Restrições de categoria/marca
+    const categoryIds = parseIdArray(applicableCategories);
+    if (categoryIds === null) {
+      return NextResponse.json(
+        { success: false, error: 'Categorias inválidas' },
+        { status: 400 },
+      );
+    }
+    const brandIds = parseIdArray(applicableBrands);
+    if (brandIds === null) {
+      return NextResponse.json(
+        { success: false, error: 'Marcas inválidas' },
+        { status: 400 },
+      );
+    }
+
     const normalizedCode = code.trim().toUpperCase();
     const exists = await Coupon.findOne({ code: normalizedCode }).lean();
     if (exists) {
@@ -145,6 +189,8 @@ export async function POST(request: NextRequest) {
       validFrom: new Date(validFrom),
       validUntil: new Date(validUntil),
       isActive: isActive !== false,
+      applicableCategories: categoryIds,
+      applicableBrands: brandIds,
     });
 
     return NextResponse.json({ success: true, coupon }, { status: 201 });

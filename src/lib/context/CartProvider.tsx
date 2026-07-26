@@ -1,10 +1,20 @@
 // 📄 src/lib/context/CartProvider.tsx
+// v3 (cupons restritos por categoria/marca):
+// - O desconto do cupom deixa de ser calculado no client (computeDiscount
+//   aposentado) — o client não conhece as regras de elegibilidade
+//   (categoria/marca vivem como refs no Product, server-side).
+// - AppliedCoupon agora guarda o discount CALCULADO PELO SERVIDOR, além de
+//   eligibleCount/totalCount/isRestricted para a UI mostrar "X de Y itens".
+// - Revalidação automática: sempre que os items mudam (add/remove/qty),
+//   o cupom é re-validado em /api/coupons/validate e o desconto atualizado.
+//   Se deixar de ser válido (ex.: cliente removeu o único item elegível),
+//   o cupom é removido e um aviso fica disponível em couponNotice.
+// - Sequence counter evita race de respostas fora de ordem.
+//
 // v2: updateItemPrices — sincroniza os preços do carrinho quando o checkout
 //     devolve 409 PRICES_CHANGED (preços revalidados no banco).
 // v2: pixTotal derivado de company.payment.pixDiscountPercent — mesmo
-//     percentual usado no PaymentForm (antes era 0.9 hardcoded; se o
-//     desconto mudasse no config, o resumo mostraria um valor e o botão
-//     "Gerar PIX" outro).
+//     percentual usado no PaymentForm.
 'use client';
 import {
   createContext,
@@ -12,6 +22,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import { company } from '@/lib/config/company';
@@ -37,6 +48,11 @@ export interface AppliedCoupon {
   value: number;
   minOrderValue: number;
   maxDiscount: number;
+  // Calculados pelo SERVIDOR (fonte de verdade) em /api/coupons/validate:
+  discount: number;
+  eligibleCount: number;
+  totalCount: number;
+  isRestricted: boolean;
 }
 export interface PriceUpdate {
   productId?: string;
@@ -63,29 +79,13 @@ interface CartContextType {
   removeCoupon: () => void;
   discount: number;
   total: number;
+  // Aviso quando o cupom foi removido/alterado por mudança no carrinho
+  couponNotice: string;
+  clearCouponNotice: () => void;
 }
 const CartContext = createContext<CartContextType | undefined>(undefined);
 const CART_STORAGE_KEY = 'surfers-paradise-cart';
 const COUPON_STORAGE_KEY = 'surfers-paradise-coupon';
-
-// Calcula o desconto a partir do cupom e do subtotal atual.
-// Recalcula sempre que o carrinho muda (ex.: cupom de % acompanha o subtotal).
-function computeDiscount(
-  coupon: AppliedCoupon | null,
-  subtotal: number,
-): number {
-  if (!coupon) return 0;
-  if (coupon.minOrderValue && subtotal < coupon.minOrderValue) return 0;
-  let d =
-    coupon.type === 'percentage'
-      ? (subtotal * coupon.value) / 100
-      : coupon.value;
-  if (coupon.maxDiscount && coupon.maxDiscount > 0) {
-    d = Math.min(d, coupon.maxDiscount);
-  }
-  d = Math.min(d, subtotal);
-  return Math.round(d * 100) / 100;
-}
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -93,7 +93,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(
     null,
   );
+  const [couponNotice, setCouponNotice] = useState('');
   const [isHydrated, setIsHydrated] = useState(false);
+  // Sequence counter: descarta respostas de revalidação fora de ordem
+  const revalidateSeq = useRef(0);
   // Load cart + coupon from localStorage on mount (client-side only)
   useEffect(() => {
     try {
@@ -105,7 +108,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const storedCoupon = localStorage.getItem(COUPON_STORAGE_KEY);
       if (storedCoupon) {
         const parsed = JSON.parse(storedCoupon);
-        if (parsed && parsed.code) setAppliedCoupon(parsed);
+        // Cupons persistidos no formato antigo (sem discount) são
+        // descartados — a revalidação abaixo os reaplicaria de qualquer
+        // forma, mas exigir o formato novo simplifica o tipo.
+        if (parsed && parsed.code && typeof parsed.discount === 'number') {
+          setAppliedCoupon(parsed);
+        }
       }
     } catch {
       console.warn('Erro ao carregar carrinho');
@@ -127,6 +135,87 @@ export function CartProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(COUPON_STORAGE_KEY);
     }
   }, [appliedCoupon, isHydrated]);
+
+  // ── Revalidação server-side do cupom quando o carrinho muda ──────
+  // O desconto vem SEMPRE do servidor: só ele conhece a elegibilidade
+  // por categoria/marca. Assinatura de itens (id:qty:price) evita
+  // re-fetch quando nada relevante mudou.
+  const itemsSignature = items
+    .map(i => `${i.productId}:${i.quantity}:${i.price}`)
+    .join('|');
+
+  useEffect(() => {
+    if (!isHydrated || !appliedCoupon) return;
+    if (items.length === 0) {
+      // Carrinho esvaziado → cupom sai junto, sem aviso
+      setAppliedCoupon(null);
+      return;
+    }
+
+    const seq = ++revalidateSeq.current;
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetch('/api/coupons/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            code: appliedCoupon.code,
+            items: items.map(i => ({
+              productId: i.productId,
+              sku: i.sku,
+              quantity: i.quantity,
+              price: i.price,
+            })),
+          }),
+        });
+        const data = await res.json();
+        if (seq !== revalidateSeq.current) return; // resposta obsoleta
+
+        if (!data.valid) {
+          setAppliedCoupon(null);
+          setCouponNotice(
+            data.message ||
+              'O cupom foi removido porque deixou de ser válido para o seu carrinho.',
+          );
+          return;
+        }
+        // Atualiza só se algo mudou (evita loop de renders/persistência)
+        setAppliedCoupon(prev => {
+          if (!prev || prev.code !== data.code) return prev;
+          if (
+            prev.discount === data.discount &&
+            prev.eligibleCount === data.eligibleCount &&
+            prev.totalCount === data.totalCount
+          ) {
+            return prev;
+          }
+          return {
+            ...prev,
+            discount: data.discount ?? 0,
+            eligibleCount: data.eligibleCount ?? items.length,
+            totalCount: data.totalCount ?? items.length,
+            isRestricted: data.isRestricted ?? false,
+          };
+        });
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        // Falha de rede na revalidação: mantém o último desconto conhecido.
+        // O checkout revalida server-side de qualquer forma (anti-tampering),
+        // então não há risco de cobrança errada.
+        console.warn('Falha ao revalidar cupom:', err);
+      }
+    })();
+
+    return () => controller.abort();
+    // appliedCoupon?.code (e não o objeto todo): o efeito dispara quando o
+    // CÓDIGO muda ou os itens mudam — não quando o próprio efeito atualiza
+    // discount/eligibleCount (evita loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsSignature, appliedCoupon?.code, isHydrated]);
+
   const openCart = useCallback(() => setIsCartOpen(true), []);
   const closeCart = useCallback(() => setIsCartOpen(false), []);
   const toggleCart = useCallback(() => setIsCartOpen(prev => !prev), []);
@@ -178,17 +267,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
   const applyCoupon = useCallback((coupon: AppliedCoupon) => {
     setAppliedCoupon(coupon);
+    setCouponNotice('');
   }, []);
   const removeCoupon = useCallback(() => {
     setAppliedCoupon(null);
+    setCouponNotice('');
   }, []);
+  const clearCouponNotice = useCallback(() => setCouponNotice(''), []);
   const clearCart = useCallback(() => {
     setItems([]);
     setAppliedCoupon(null);
+    setCouponNotice('');
   }, []);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const discount = computeDiscount(appliedCoupon, subtotal);
+  // Desconto: valor calculado pelo servidor (guardado no appliedCoupon).
+  // Clamp ao subtotal por segurança de exibição.
+  const discount = appliedCoupon
+    ? Math.min(appliedCoupon.discount, subtotal)
+    : 0;
   const total = Math.max(0, subtotal - discount);
   // Mesmo percentual do PaymentForm — fonte única: config da empresa
   const pixTotal = total * (1 - company.payment.pixDiscountPercent / 100);
@@ -213,6 +310,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeCoupon,
         discount,
         total,
+        couponNotice,
+        clearCouponNotice,
       }}
     >
       {children}

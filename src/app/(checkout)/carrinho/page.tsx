@@ -1,3 +1,4 @@
+// 📄 src/app/(checkout)/carrinho/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -41,16 +42,28 @@ export default function CarrinhoPage() {
       const res = await fetch('/api/coupons/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, subtotal }),
+        body: JSON.stringify({
+          code,
+          items: items.map(i => ({
+            productId: i.productId,
+            sku: i.sku,
+            quantity: i.quantity,
+            price: i.price,
+          })),
+        }),
       });
       const data = await res.json();
-      if (data.valid) {
+      if (data.valid && data.discount != null) {
         applyCoupon({
           code: data.code,
           type: data.type,
           value: data.value,
           minOrderValue: data.minOrderValue || 0,
           maxDiscount: data.maxDiscount || 0,
+          discount: data.discount,
+          eligibleCount: data.eligibleCount ?? items.length,
+          totalCount: data.totalCount ?? items.length,
+          isRestricted: data.isRestricted ?? false,
         });
         setCouponOk(true);
         setCouponMessage(data.message || 'Cupom aplicado!');
@@ -317,22 +330,31 @@ export default function CarrinhoPage() {
               </div>
 
               {appliedCoupon ? (
-                <div className='flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2'>
-                  <div>
-                    <span className='text-sm font-bold text-green-700'>
-                      {appliedCoupon.code}
-                    </span>
-                    <span className='ml-2 text-xs text-green-600'>
-                      −{formatCurrency(discount)}
-                    </span>
+                <div className='space-y-1'>
+                  <div className='flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2'>
+                    <div>
+                      <span className='text-sm font-bold text-green-700'>
+                        {appliedCoupon.code}
+                      </span>
+                      <span className='ml-2 text-xs text-green-600'>
+                        −{formatCurrency(discount)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleCouponRemove}
+                      className='text-gray-400 hover:text-red-500'
+                      title='Remover cupom'
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
-                  <button
-                    onClick={handleCouponRemove}
-                    className='text-gray-400 hover:text-red-500'
-                    title='Remover cupom'
-                  >
-                    <X size={16} />
-                  </button>
+                  {appliedCoupon.isRestricted &&
+                    appliedCoupon.eligibleCount < appliedCoupon.totalCount && (
+                      <p className='text-xs text-gray-500'>
+                        Desconto válido para {appliedCoupon.eligibleCount} de{' '}
+                        {appliedCoupon.totalCount} itens do carrinho
+                      </p>
+                    )}
                 </div>
               ) : (
                 <>

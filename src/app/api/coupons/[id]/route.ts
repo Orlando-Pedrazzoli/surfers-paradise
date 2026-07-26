@@ -1,4 +1,12 @@
+// 📄 src/app/api/coupons/[id]/route.ts
+// v2 (cupons restritos por categoria/marca):
+// - PUT aceita applicableCategories/applicableBrands — arrays de ObjectIds
+//   validados. Enviar [] REMOVE a restrição (cupom volta a valer para a
+//   loja inteira); ausente/undefined mantém o valor atual.
+// - GET popula as refs (name/slug) para o CouponForm exibir a seleção.
+
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db/connect';
 import Coupon from '@/lib/models/Coupon';
 import { auth } from '@/lib/auth/config';
@@ -7,6 +15,23 @@ async function isAdmin(): Promise<boolean> {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   return role === 'admin';
+}
+
+/**
+ * Normaliza e valida um array de ObjectIds vindo do client.
+ * Retorna null se inválido. AQUI (PUT), undefined → undefined
+ * (campo não enviado = não alterar), diferente do POST.
+ */
+function parseIdArrayForUpdate(value: unknown): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return [];
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string' || !mongoose.isValidObjectId(v)) return null;
+    ids.push(v);
+  }
+  return [...new Set(ids)];
 }
 
 // GET — buscar um cupom
@@ -23,7 +48,10 @@ export async function GET(
     }
     await connectDB();
     const { id } = await params;
-    const coupon = await Coupon.findById(id).lean();
+    const coupon = await Coupon.findById(id)
+      .populate('applicableCategories', 'name slug')
+      .populate('applicableBrands', 'name slug')
+      .lean();
     if (!coupon) {
       return NextResponse.json(
         { success: false, error: 'Cupom não encontrado' },
@@ -66,6 +94,8 @@ export async function PUT(
       validFrom,
       validUntil,
       isActive,
+      applicableCategories,
+      applicableBrands,
     } = body;
 
     if (type && type !== 'percentage' && type !== 'fixed') {
@@ -97,6 +127,22 @@ export async function PUT(
       );
     }
 
+    // Restrições de categoria/marca
+    const categoryIds = parseIdArrayForUpdate(applicableCategories);
+    if (categoryIds === null) {
+      return NextResponse.json(
+        { success: false, error: 'Categorias inválidas' },
+        { status: 400 },
+      );
+    }
+    const brandIds = parseIdArrayForUpdate(applicableBrands);
+    if (brandIds === null) {
+      return NextResponse.json(
+        { success: false, error: 'Marcas inválidas' },
+        { status: 400 },
+      );
+    }
+
     // Checar duplicidade de código (excluindo o próprio)
     if (code) {
       const normalizedCode = code.trim().toUpperCase();
@@ -122,6 +168,8 @@ export async function PUT(
     if (validFrom) update.validFrom = new Date(validFrom);
     if (validUntil) update.validUntil = new Date(validUntil);
     if (isActive !== undefined) update.isActive = isActive;
+    if (categoryIds !== undefined) update.applicableCategories = categoryIds;
+    if (brandIds !== undefined) update.applicableBrands = brandIds;
 
     const coupon = await Coupon.findByIdAndUpdate(id, update, {
       new: true,

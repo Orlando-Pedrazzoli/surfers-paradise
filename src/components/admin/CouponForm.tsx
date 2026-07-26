@@ -1,6 +1,16 @@
+// 📄 src/components/admin/CouponForm.tsx
+// v2 (cupons restritos por categoria/marca):
+// - Multi-select de CATEGORIAS (com hierarquia pai → filho indentada) e de
+//   MARCAS. Vazio = cupom vale para a loja inteira (comportamento antigo).
+// - Selecionar uma categoria-raiz (ex.: Wetsuits) já cobre todas as
+//   subcategorias — a validação server-side aceita category OU subcategory.
+// - Se categoria E marca forem selecionadas, o produto precisa satisfazer
+//   AMBAS (ex.: só quilhas FCS).
+// - Envia applicableCategories/applicableBrands como arrays de ObjectId
+//   (strings) no payload do POST/PUT.
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -16,6 +26,23 @@ interface CouponData {
   validFrom: string | Date;
   validUntil: string | Date;
   isActive: boolean;
+  applicableCategories?: string[];
+  applicableBrands?: string[];
+}
+
+interface CategoryOption {
+  _id: string;
+  name: string;
+  parent?: string | null;
+  level?: number;
+  order?: number;
+  isActive?: boolean;
+}
+
+interface BrandOption {
+  _id: string;
+  name: string;
+  isActive?: boolean;
 }
 
 interface CouponFormProps {
@@ -30,6 +57,46 @@ function toDateInput(value?: string | Date): string {
   const d = new Date(value);
   if (isNaN(d.getTime())) return '';
   return d.toISOString().slice(0, 10);
+}
+
+// Normaliza refs que podem vir como string ou como objeto populado { _id }
+function toIdArray(value?: unknown[]): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(v =>
+      typeof v === 'string'
+        ? v
+        : v && typeof v === 'object' && '_id' in v
+          ? String((v as { _id: unknown })._id)
+          : '',
+    )
+    .filter(Boolean);
+}
+
+/**
+ * Ordena categorias em árvore achatada (raiz seguida dos filhos), para o
+ * multi-select exibir a hierarquia com indentação.
+ */
+function flattenCategoryTree(cats: CategoryOption[]): CategoryOption[] {
+  const roots = cats
+    .filter(c => !c.parent)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const childrenOf = (parentId: string) =>
+    cats
+      .filter(c => c.parent && String(c.parent) === parentId)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const out: CategoryOption[] = [];
+  const walk = (node: CategoryOption, level: number) => {
+    out.push({ ...node, level });
+    for (const child of childrenOf(node._id)) walk(child, level + 1);
+  };
+  for (const root of roots) walk(root, 0);
+
+  // Categorias órfãs (parent não encontrado na lista) entram no fim
+  const seen = new Set(out.map(c => c._id));
+  for (const c of cats) if (!seen.has(c._id)) out.push({ ...c, level: 0 });
+  return out;
 }
 
 export default function CouponForm({
@@ -60,6 +127,65 @@ export default function CouponForm({
   const [validUntil, setValidUntil] = useState(toDateInput(coupon?.validUntil));
   const [isActive, setIsActive] = useState(coupon?.isActive ?? true);
   const [saving, setSaving] = useState(false);
+
+  // ── Restrições de categoria/marca ────────────────────────────────
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(
+    toIdArray(coupon?.applicableCategories),
+  );
+  const [selectedBrands, setSelectedBrands] = useState<string[]>(
+    toIdArray(coupon?.applicableBrands),
+  );
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [catRes, brandRes] = await Promise.all([
+          fetch('/api/categories'),
+          fetch('/api/brands'),
+        ]);
+        const catData = await catRes.json();
+        const brandData = await brandRes.json();
+        if (cancelled) return;
+
+        // Aceita { categories: [...] } ou array direto
+        const rawCats: CategoryOption[] = Array.isArray(catData)
+          ? catData
+          : catData.categories || [];
+        const rawBrands: BrandOption[] = Array.isArray(brandData)
+          ? brandData
+          : brandData.brands || [];
+
+        setCategories(
+          flattenCategoryTree(rawCats.filter(c => c.isActive !== false)),
+        );
+        setBrands(
+          rawBrands
+            .filter(b => b.isActive !== false)
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      } catch {
+        if (!cancelled) toast.error('Erro ao carregar categorias/marcas');
+      } finally {
+        if (!cancelled) setLoadingOptions(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleCategory = (id: string) =>
+    setSelectedCategories(prev =>
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id],
+    );
+  const toggleBrand = (id: string) =>
+    setSelectedBrands(prev =>
+      prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id],
+    );
 
   const handleSubmit = async () => {
     if (!code.trim()) {
@@ -94,6 +220,8 @@ export default function CouponForm({
       validFrom,
       validUntil,
       isActive,
+      applicableCategories: selectedCategories,
+      applicableBrands: selectedBrands,
     };
 
     setSaving(true);
@@ -121,6 +249,9 @@ export default function CouponForm({
 
   const selectClass =
     'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]/50';
+
+  const hasRestriction =
+    selectedCategories.length > 0 || selectedBrands.length > 0;
 
   return (
     <div className='space-y-4'>
@@ -199,6 +330,92 @@ export default function CouponForm({
           value={validUntil}
           onChange={e => setValidUntil(e.target.value)}
         />
+      </div>
+
+      {/* ── Restrições (categoria/marca) ─────────────────────────── */}
+      <div className='rounded-lg border border-gray-200 p-3'>
+        <p className='mb-1 text-sm font-medium text-gray-700'>
+          RESTRINGIR CUPOM (opcional)
+        </p>
+        <p className='mb-3 text-xs text-gray-500'>
+          Sem seleção, o cupom vale para a loja inteira. Selecionar uma
+          categoria principal já inclui as subcategorias. Se selecionar
+          categoria E marca, o produto precisa atender às duas.
+        </p>
+
+        {loadingOptions ? (
+          <p className='text-xs text-gray-400'>Carregando opções...</p>
+        ) : (
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+            <div>
+              <p className='mb-1.5 text-xs font-semibold text-gray-600'>
+                CATEGORIAS ({selectedCategories.length})
+              </p>
+              <div className='max-h-48 space-y-1 overflow-y-auto rounded border border-gray-200 p-2'>
+                {categories.map(cat => (
+                  <label
+                    key={cat._id}
+                    className='flex cursor-pointer items-center gap-2 text-sm text-gray-700'
+                    style={{ paddingLeft: `${(cat.level ?? 0) * 16}px` }}
+                  >
+                    <input
+                      type='checkbox'
+                      checked={selectedCategories.includes(cat._id)}
+                      onChange={() => toggleCategory(cat._id)}
+                      className='h-4 w-4 accent-[#FF6600]'
+                    />
+                    <span
+                      className={
+                        (cat.level ?? 0) === 0 ? 'font-medium' : 'text-gray-600'
+                      }
+                    >
+                      {cat.name}
+                    </span>
+                  </label>
+                ))}
+                {!categories.length && (
+                  <p className='text-xs text-gray-400'>
+                    Nenhuma categoria encontrada
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className='mb-1.5 text-xs font-semibold text-gray-600'>
+                MARCAS ({selectedBrands.length})
+              </p>
+              <div className='max-h-48 space-y-1 overflow-y-auto rounded border border-gray-200 p-2'>
+                {brands.map(brand => (
+                  <label
+                    key={brand._id}
+                    className='flex cursor-pointer items-center gap-2 text-sm text-gray-700'
+                  >
+                    <input
+                      type='checkbox'
+                      checked={selectedBrands.includes(brand._id)}
+                      onChange={() => toggleBrand(brand._id)}
+                      className='h-4 w-4 accent-[#FF6600]'
+                    />
+                    {brand.name}
+                  </label>
+                ))}
+                {!brands.length && (
+                  <p className='text-xs text-gray-400'>
+                    Nenhuma marca encontrada
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasRestriction && (
+          <p className='mt-2 text-xs text-amber-600'>
+            Cupom restrito: o desconto será aplicado apenas aos produtos
+            elegíveis do carrinho.
+          </p>
+        )}
       </div>
 
       <label className='flex cursor-pointer items-center gap-2'>

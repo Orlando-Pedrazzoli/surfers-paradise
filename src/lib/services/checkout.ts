@@ -3,6 +3,15 @@
 // server-side → totais → antifraude → cria pedido pending → cria a order no
 // MERCADO PAGO (API de Orders) → atualiza status.
 //
+// v8 (cupons restritos por categoria/marca):
+// - resolveCoupon local APOSENTADO — a validação/cálculo do cupom agora é
+//   feita por lib/services/coupon.ts (resolveCouponForItems), a MESMA fonte
+//   usada por /api/coupons/validate. O desconto incide apenas sobre o
+//   subtotal dos itens ELEGÍVEIS (categoria/marca do cupom); cupons sem
+//   restrição continuam valendo para o carrinho todo.
+// - Os PricedItems (preço-verdade do banco) alimentam o serviço, então o
+//   anti-tampering do valor do cupom é mantido integralmente.
+//
 // v6 (migração Pagar.me → Mercado Pago):
 // - Gateway trocado para services/mercadopago (API de Orders, Checkout
 //   Transparente). O MP cobra total_amount diretamente, então a distribuição
@@ -16,12 +25,9 @@
 //   boleto — mapeado do shippingAddress. Desconto boletoDiscountPercent
 //   aplicado como no PIX.
 //
-// v2: desconto (cupom + método) distribuído proporcionalmente nos itens
-// enviados à Pagar.me — a Orders API V5 não tem campo de desconto e cobra
-// sempre soma(items) + frete.
 // v2: dispara sendOrderConfirmation quando o cartão é aprovado na hora.
-// v3: cupom revalidado e RECALCULADO server-side contra o model Coupon —
-// o couponDiscount enviado pelo cliente é ignorado (anti-tampering).
+// v3: cupom revalidado e RECALCULADO server-side — o couponDiscount enviado
+// pelo cliente é ignorado (anti-tampering).
 // v3: usedCount incrementado atomicamente após sucesso no gateway.
 // v4: PREÇOS revalidados contra o Product no banco — o price enviado pelo
 // cliente é usado apenas para detectar carrinho desatualizado (409 com
@@ -29,8 +35,6 @@
 // v4: validação de ESTOQUE e disponibilidade (isActive + isPublishedOnline)
 // antes de criar o pedido. (Decremento idempotente na transição paid é
 // feito à parte — ver webhook.)
-// v4: buildPagarmeItems com guarda contra último item <= 0 centavos em
-// descontos agressivos (redistribui dos itens anteriores).
 // v5: decrementa estoque no caminho de cartão aprovado na hora via
 // processOrderStock (idempotente — o webhook cobre falhas desta chamada).
 
@@ -47,6 +51,7 @@ import {
   MercadoPagoError,
   type MpAddressInput,
 } from '@/lib/services/mercadopago';
+import { resolveCouponForItems } from '@/lib/services/coupon';
 import { checkFraud } from '@/lib/services/fraudProtection';
 import { sendOrderConfirmation } from '@/lib/services/email';
 import { processOrderStock } from '@/lib/services/inventory';
@@ -98,7 +103,7 @@ const baseSchema = z.object({
     .optional(),
   coupon: z.string().optional().default(''),
   // Aceito por compatibilidade com o frontend, mas IGNORADO:
-  // o desconto é recalculado server-side em resolveCoupon().
+  // o desconto é recalculado server-side via resolveCouponForItems().
   couponDiscount: z.number().nonnegative().optional().default(0),
   cardToken: z.string().optional(),
   paymentMethodId: z.string().optional(), // bandeira MP (visa/master/...)
@@ -149,6 +154,11 @@ function getEffectivePrice(product: { price: number }): number {
   return product.price;
 }
 
+/** Resultado da revalidação server-side dos itens do carrinho. */
+type RevalidateResult =
+  | { ok: true; items: PricedItem[] }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
 /**
  * Revalida cada item do carrinho contra o Product no banco:
  * - produto precisa existir, estar ativo e publicado online;
@@ -160,12 +170,7 @@ function getEffectivePrice(product: { price: number }): number {
  * carrinho e o cliente reconfirmar. NUNCA cobramos silenciosamente um
  * valor diferente do que o cliente viu (nem a mais, nem a menos).
  */
-async function revalidateItems(
-  items: CartItem[],
-): Promise<
-  | { ok: true; items: PricedItem[] }
-  | { ok: false; status: number; body: Record<string, unknown> }
-> {
+async function revalidateItems(items: CartItem[]): Promise<RevalidateResult> {
   // Busca em lote: por _id quando houver, senão por SKU
   const ids = items.map(i => i.productId).filter(Boolean) as string[];
   const skus = items.filter(i => !i.productId && i.sku).map(i => i.sku);
@@ -276,49 +281,6 @@ async function revalidateItems(
   return { ok: true, items: priced };
 }
 
-/**
- * Revalida o cupom no banco e recalcula o desconto server-side.
- * Mesmas regras da rota /api/coupons/validate.
- * Retorna { discount } ou { error } com mensagem pro cliente.
- */
-async function resolveCoupon(
-  code: string,
-  subtotal: number,
-): Promise<
-  { discount: number; error?: never } | { error: string; discount?: never }
-> {
-  const normalized = code.trim().toUpperCase();
-  if (!normalized) return { discount: 0 };
-
-  const coupon = await Coupon.findOne({ code: normalized });
-  if (!coupon) return { error: 'Cupom inválido' };
-  if (!coupon.isActive) return { error: 'Cupom inativo' };
-
-  const now = new Date();
-  if (now < coupon.validFrom) return { error: 'Cupom ainda não está válido' };
-  if (now > coupon.validUntil) return { error: 'Cupom expirado' };
-
-  const usageLimit = coupon.usageLimit ?? 0;
-  if (usageLimit > 0 && coupon.usedCount >= usageLimit) {
-    return { error: 'Cupom esgotado' };
-  }
-  if (coupon.minOrderValue && subtotal < coupon.minOrderValue) {
-    return {
-      error: `Pedido mínimo de R$ ${coupon.minOrderValue.toFixed(2)} para usar este cupom`,
-    };
-  }
-
-  let discount =
-    coupon.type === 'percentage'
-      ? (subtotal * coupon.value) / 100
-      : coupon.value;
-  if (coupon.maxDiscount && coupon.maxDiscount > 0) {
-    discount = Math.min(discount, coupon.maxDiscount);
-  }
-  discount = Math.min(discount, subtotal);
-  return { discount: round2(discount) };
-}
-
 export async function processCheckout(
   method: PaymentMethod,
   raw: unknown,
@@ -359,12 +321,27 @@ export async function processCheckout(
   // 1a. Totais 100% server-side, sobre os preços do banco
   const subtotal = items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
 
-  // 1b. Cupom: revalidado e recalculado no banco — valor do cliente ignorado
-  const couponResult = await resolveCoupon(input.coupon, subtotal);
-  if (couponResult.error) {
-    return { status: 400, body: { error: couponResult.error } };
+  // 1b. Cupom: revalidado e recalculado no banco pelo serviço partilhado
+  // (mesma lógica do /api/coupons/validate). Suporta restrição por
+  // categoria/marca — o desconto incide apenas nos itens elegíveis.
+  // O couponDiscount do cliente é ignorado (anti-tampering).
+  let couponDiscount = 0;
+  const couponCode = input.coupon.trim().toUpperCase();
+  if (couponCode) {
+    const couponResult = await resolveCouponForItems(
+      couponCode,
+      items.map(i => ({
+        productId: i.productId,
+        sku: i.sku,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+    );
+    if (!couponResult.ok) {
+      return { status: 400, body: { error: couponResult.message } };
+    }
+    couponDiscount = couponResult.discount;
   }
-  const couponDiscount = couponResult.discount ?? 0;
 
   let methodDiscount = 0;
   if (method === 'pix') {
@@ -436,7 +413,7 @@ export async function processCheckout(
     subtotal: round2(subtotal),
     shippingCost: input.shippingCost,
     discount: totalDiscount,
-    coupon: input.coupon ? input.coupon.trim().toUpperCase() : '',
+    coupon: couponCode,
     total,
     shippingAddress: {
       ...input.shippingAddress,
@@ -481,11 +458,8 @@ export async function processCheckout(
     // 4a. Consumo do cupom: incremento atômico após sucesso no gateway.
     // (Não incrementa em falha de gateway; pedido PIX abandonado consome —
     // trade-off aceito para loja pequena, evita corrida no limite de uso.)
-    if (couponDiscount > 0 && input.coupon) {
-      Coupon.updateOne(
-        { code: input.coupon.trim().toUpperCase() },
-        { $inc: { usedCount: 1 } },
-      )
+    if (couponDiscount > 0 && couponCode) {
+      Coupon.updateOne({ code: couponCode }, { $inc: { usedCount: 1 } })
         .exec()
         .catch(e => console.error('[Checkout] falha ao incrementar cupom:', e));
     }
