@@ -1,4 +1,13 @@
 // 📄 src/lib/context/CartProvider.tsx
+// v4 (UX da sidebar):
+// - Auto-close: quando o carrinho TRANSICIONA de cheio → vazio com a
+//   sidebar aberta (ex.: user removeu o último item pelo ícone de lixeira),
+//   a sidebar fecha sozinha após 400ms (deixa a animação de remoção
+//   respirar antes de fechar).
+// - prevItemsLength (ref) garante que só fechamos na transição — abrir a
+//   sidebar com o carrinho JÁ vazio (ícone da navbar) continua funcionando
+//   normalmente, mostrando o estado "Seu carrinho está vazio".
+//
 // v3 (cupons restritos por categoria/marca):
 // - O desconto do cupom deixa de ser calculado no client (computeDiscount
 //   aposentado) — o client não conhece as regras de elegibilidade
@@ -86,6 +95,8 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 const CART_STORAGE_KEY = 'surfers-paradise-cart';
 const COUPON_STORAGE_KEY = 'surfers-paradise-coupon';
+// Delay antes de fechar a sidebar quando o carrinho esvazia (ms)
+const EMPTY_CART_CLOSE_DELAY = 400;
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -97,6 +108,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isHydrated, setIsHydrated] = useState(false);
   // Sequence counter: descarta respostas de revalidação fora de ordem
   const revalidateSeq = useRef(0);
+  // Comprimento anterior da lista de itens — usado para detectar a
+  // TRANSIÇÃO cheio → vazio (auto-close da sidebar)
+  const prevItemsLength = useRef(0);
   // Load cart + coupon from localStorage on mount (client-side only)
   useEffect(() => {
     try {
@@ -135,6 +149,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(COUPON_STORAGE_KEY);
     }
   }, [appliedCoupon, isHydrated]);
+
+  // ── Auto-close da sidebar quando o carrinho esvazia ──────────────
+  // Só dispara na TRANSIÇÃO cheio → vazio (prevItemsLength > 0). Abrir a
+  // sidebar já vazia pela navbar NÃO fecha sozinho — o user vê o estado
+  // vazio com o CTA "Continuar Comprando", como esperado.
+  useEffect(() => {
+    const wasFull = prevItemsLength.current > 0;
+    prevItemsLength.current = items.length;
+
+    if (items.length === 0 && wasFull && isCartOpen) {
+      const timer = setTimeout(
+        () => setIsCartOpen(false),
+        EMPTY_CART_CLOSE_DELAY,
+      );
+      return () => clearTimeout(timer);
+    }
+  }, [items.length, isCartOpen]);
 
   // ── Revalidação server-side do cupom quando o carrinho muda ──────
   // O desconto vem SEMPRE do servidor: só ele conhece a elegibilidade

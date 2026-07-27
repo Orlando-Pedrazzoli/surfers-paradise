@@ -1,3 +1,8 @@
+// 📄 src/components/product/ProductCard.tsx
+// v2: handleQuickAdd abre a CartSidebar após adicionar (padrão e-commerce).
+//     Toast removido — a sidebar é a confirmação visual.
+//     e.preventDefault() continua essencial: o card inteiro é um <Link>,
+//     sem ele o clique no COMPRAR navegaria para a PDP.
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -10,7 +15,6 @@ import {
   calculatePixPrice,
 } from '@/lib/utils/installments';
 import { useCart } from '@/lib/context/CartProvider';
-import toast from 'react-hot-toast';
 
 interface ProductCardProps {
   product: {
@@ -60,7 +64,7 @@ export default function ProductCard({
   product,
   expanded = false,
 }: ProductCardProps) {
-  const { addToCart } = useCart();
+  const { addToCart, openCart } = useCart();
   const [currentImage, setCurrentImage] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [familySiblings, setFamilySiblings] = useState<FamilySibling[]>([]);
@@ -181,7 +185,7 @@ export default function ProductCard({
       },
       1,
     );
-    toast.success('Adicionado ao carrinho!');
+    openCart();
   };
 
   return (

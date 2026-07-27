@@ -1,9 +1,14 @@
 // 📄 src/app/(shop)/produtos/[slug]/ProductPageClient.tsx
+// v4.1: fix de sintaxe — generic do useState<Record<string, string>> e tag <a>
+// de abertura no link "Não sei meu CEP".
+// v4: AddToCartModal aposentado — ao comprar, abre a CartSidebar (padrão de
+// e-commerce: mostra o item adicionado + CTAs de carrinho/checkout, tudo que
+// o modal fazia e mais). Estado showCartModal e import removidos.
+// v3: cotação usa peso E dimensões reais do produto (dimensions.length/width/
+// height do catálogo) + atributos name/autoComplete no campo CEP (autofill).
 // v2: cálculo de frete real via Melhor Envio (5 opções, somente visualização —
 // cotação automática ao completar o CEP) + scroll para o topo sempre que a
 // página de detalhe abre ou troca de produto (variantes da família).
-// v3: cotação usa peso E dimensões reais do produto (dimensions.length/width/
-// height do catálogo) + atributos name/autoComplete no campo CEP (autofill).
 'use client';
 
 import { useState, useEffect, use } from 'react';
@@ -28,7 +33,6 @@ import {
 import ProductCard from '@/components/product/ProductCard';
 import ProductGallery from '@/components/product/ProductGallery';
 import { useCart } from '@/lib/context/CartProvider';
-import AddToCartModal from '@/components/checkout/AddToCartModal';
 import { useShippingQuotes } from '@/lib/hooks/useShippingQuotes';
 
 interface ProductData {
@@ -120,7 +124,7 @@ export default function ProductDetailPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
-  const { addToCart } = useCart();
+  const { addToCart, openCart } = useCart();
   const [product, setProduct] = useState<ProductData | null>(null);
   const [familyProducts, setFamilyProducts] = useState<FamilyProduct[]>([]);
   const [related, setRelated] = useState<RelatedProduct[]>([]);
@@ -130,7 +134,6 @@ export default function ProductDetailPage({
     Record<string, string>
   >({});
   const [isFavorite, setIsFavorite] = useState(false);
-  const [showCartModal, setShowCartModal] = useState(false);
   const [cepFrete, setCepFrete] = useState('');
 
   // ═══ SCROLL TOP: sempre que a página de detalhe abre ou troca de produto
@@ -245,7 +248,7 @@ export default function ProductDetailPage({
       },
       quantity,
     );
-    setShowCartModal(true);
+    openCart();
   };
 
   const handleShare = () => {
@@ -275,12 +278,6 @@ export default function ProductDetailPage({
 
   return (
     <div className='max-w-7xl mx-auto px-4 py-4'>
-      {/* Add to Cart Modal */}
-      <AddToCartModal
-        isOpen={showCartModal}
-        onClose={() => setShowCartModal(false)}
-      />
-
       {/* Breadcrumb */}
       <nav className='text-sm text-gray-500 mb-6'>
         <Link href='/' className='hover:text-[#FF6600]'>
