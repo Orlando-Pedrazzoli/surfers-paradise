@@ -127,16 +127,20 @@ export async function cancelExpiredOrders(): Promise<ExpirationResult> {
         const restock = await restoreOrderStock(_id);
         if (restock.processed) result.restocked++;
 
-        // Notifica o cliente (fire-and-forget)
+        // Notifica o cliente (AGUARDADO: fire-and-forget morre na Vercel
+        // depois da resposta do cron; sendOrderStatusUpdate nunca lança)
         const email = order.customerSnapshot?.email || order.guestEmail;
         if (email) {
-          sendOrderStatusUpdate(email, order.orderNumber, 'cancelled').catch(
-            e =>
-              console.error(
-                '[OrderExpiration] falha ao enviar e-mail:',
-                order.orderNumber,
-                e,
-              ),
+          await sendOrderStatusUpdate(
+            email,
+            order.orderNumber,
+            'cancelled',
+          ).catch(e =>
+            console.error(
+              '[OrderExpiration] falha ao enviar e-mail:',
+              order.orderNumber,
+              e,
+            ),
           );
         }
 

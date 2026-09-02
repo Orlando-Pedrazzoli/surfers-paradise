@@ -235,7 +235,8 @@ export async function PATCH(
     if (order.payment.status === 'paid' && prevPaymentStatus !== 'paid') {
       await processOrderStock(order._id);
       if (customerEmail) {
-        sendOrderConfirmation(customerEmail, order.orderNumber).catch(e =>
+        // AGUARDADO: fire-and-forget morre na Vercel após a resposta.
+        await sendOrderConfirmation(customerEmail, order.orderNumber).catch(e =>
           console.error(
             '[Admin Order] falha ao enviar confirmação:',
             order.orderNumber,
@@ -257,7 +258,8 @@ export async function PATCH(
       (order.status === 'shipped' || order.status === 'delivered') &&
       customerEmail
     ) {
-      sendOrderStatusUpdate(
+      // AGUARDADO: fire-and-forget morre na Vercel após a resposta.
+      await sendOrderStatusUpdate(
         customerEmail,
         order.orderNumber,
         order.status,

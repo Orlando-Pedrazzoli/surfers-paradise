@@ -21,10 +21,13 @@ import {
   isFailedStatus,
 } from '@/lib/services/mercadopago';
 import { processOrderStock } from '@/lib/services/inventory';
-import { sendOrderConfirmation } from '@/lib/services/email';
+import { sendOrderPaidEmails } from '@/lib/services/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// O poll que confirma o pagamento faz: gateway + save + estoque + 2 e-mails
+// (aguardados). 30s dá folga em cold start — mesmo racional do webhook.
+export const maxDuration = 30;
 
 const GATEWAY_CHECK_THROTTLE_MS = 30_000;
 
@@ -82,16 +85,10 @@ export async function GET(request: Request) {
 
         await processOrderStock(order._id);
 
+        // AGUARDADO (await): fire-and-forget morre na Vercel após a resposta.
+        // Notifica CLIENTE + ADMIN; nunca lança.
         const email = order.customerSnapshot?.email || order.guestEmail;
-        if (email) {
-          sendOrderConfirmation(email, order.orderNumber).catch(e =>
-            console.error(
-              '[Payment Status] falha ao enviar confirmação:',
-              order.orderNumber,
-              e,
-            ),
-          );
-        }
+        await sendOrderPaidEmails(email, order.orderNumber);
         console.info(
           '[Payment Status] pedido confirmado via fallback (webhook não chegou):',
           order.orderNumber,

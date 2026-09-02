@@ -53,7 +53,7 @@ import {
 } from '@/lib/services/mercadopago';
 import { resolveCouponForItems } from '@/lib/services/coupon';
 import { checkFraud } from '@/lib/services/fraudProtection';
-import { sendOrderConfirmation } from '@/lib/services/email';
+import { sendOrderPaidEmails } from '@/lib/services/email';
 import { processOrderStock } from '@/lib/services/inventory';
 
 export type PaymentMethod = 'credit_card' | 'pix' | 'boleto';
@@ -500,12 +500,10 @@ export async function processCheckout(
     if (order.payment.status === 'paid') {
       await processOrderStock(order._id);
 
+      // AGUARDADO (await): fire-and-forget morre na Vercel após a resposta.
+      // Notifica CLIENTE + ADMIN; nunca lança.
       const email = order.customerSnapshot?.email || order.guestEmail;
-      if (email) {
-        sendOrderConfirmation(email, order.orderNumber).catch(e =>
-          console.error('[Checkout] falha ao enviar confirmação:', e),
-        );
-      }
+      await sendOrderPaidEmails(email, order.orderNumber);
     }
 
     const ok = order.payment.status !== 'failed';

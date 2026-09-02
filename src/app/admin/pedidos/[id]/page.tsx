@@ -1,3 +1,7 @@
+// 📄 src/app/admin/pedidos/[id]/page.tsx
+// v7: RETIRADA NA LOJA — pedidos com shipping.carrier === 'Retirada na Loja'
+//     mostram aviso operacional (não gerar etiqueta), título "Retirada na
+//     Loja Física" no card de endereço e ocultam o card de Rastreio.
 'use client';
 
 import { useState, useEffect, useCallback, use } from 'react';
@@ -74,6 +78,7 @@ interface OrderDetail {
   };
   shipping?: {
     method: string;
+    carrier?: string;
     trackingCode: string;
     shippedAt?: string;
     deliveredAt?: string;
@@ -294,6 +299,11 @@ export default function AdminOrderDetailPage({
     (order.channel === 'pos' ||
       !['shipped', 'delivered'].includes(order.status));
 
+  // v7: pedido de RETIRADA NA LOJA — marcador gravado pelo checkout online.
+  // Nesses pedidos o shippingAddress é o endereço da PRÓPRIA LOJA:
+  // não gerar etiqueta nem código de rastreio.
+  const isPickup = order.shipping?.carrier === 'Retirada na Loja';
+
   return (
     <div>
       {/* HEADER */}
@@ -415,37 +425,39 @@ export default function AdminOrderDetailPage({
             </div>
           </div>
 
-          {/* TRACKING (só online) */}
-          {order.channel === 'online' && order.status !== 'cancelled' && (
-            <div className='bg-white rounded-lg shadow-sm p-4'>
-              <div className='flex items-center gap-2 mb-3'>
-                <Truck size={16} className='text-gray-400' />
-                <h2 className='font-semibold'>Rastreio</h2>
+          {/* TRACKING (só online; retirada na loja não tem rastreio) */}
+          {order.channel === 'online' &&
+            order.status !== 'cancelled' &&
+            !isPickup && (
+              <div className='bg-white rounded-lg shadow-sm p-4'>
+                <div className='flex items-center gap-2 mb-3'>
+                  <Truck size={16} className='text-gray-400' />
+                  <h2 className='font-semibold'>Rastreio</h2>
+                </div>
+                <div className='flex gap-2'>
+                  <input
+                    type='text'
+                    value={trackingCode}
+                    onChange={e => setTrackingCode(e.target.value)}
+                    placeholder='Código de rastreio'
+                    className='flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] font-mono text-sm'
+                  />
+                  <button
+                    onClick={handleSaveTracking}
+                    disabled={saving}
+                    className='px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] disabled:opacity-50 flex items-center gap-1.5 text-sm'
+                  >
+                    <Save size={14} />
+                    Salvar
+                  </button>
+                </div>
+                {order.shipping?.shippedAt && (
+                  <p className='text-xs text-gray-500 mt-2'>
+                    Enviado em {formatDateTime(order.shipping.shippedAt)}
+                  </p>
+                )}
               </div>
-              <div className='flex gap-2'>
-                <input
-                  type='text'
-                  value={trackingCode}
-                  onChange={e => setTrackingCode(e.target.value)}
-                  placeholder='Código de rastreio'
-                  className='flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] font-mono text-sm'
-                />
-                <button
-                  onClick={handleSaveTracking}
-                  disabled={saving}
-                  className='px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] disabled:opacity-50 flex items-center gap-1.5 text-sm'
-                >
-                  <Save size={14} />
-                  Salvar
-                </button>
-              </div>
-              {order.shipping?.shippedAt && (
-                <p className='text-xs text-gray-500 mt-2'>
-                  Enviado em {formatDateTime(order.shipping.shippedAt)}
-                </p>
-              )}
-            </div>
-          )}
+            )}
 
           {/* NOTAS */}
           <div className='bg-white rounded-lg shadow-sm p-4'>
@@ -618,8 +630,18 @@ export default function AdminOrderDetailPage({
             <div className='bg-white rounded-lg shadow-sm p-4'>
               <div className='flex items-center gap-2 mb-3'>
                 <MapPin size={16} className='text-gray-400' />
-                <h2 className='font-semibold text-sm'>Endereço de Entrega</h2>
+                <h2 className='font-semibold text-sm'>
+                  {isPickup ? 'Retirada na Loja Física' : 'Endereço de Entrega'}
+                </h2>
               </div>
+              {isPickup && (
+                <p className='mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800'>
+                  🏬 O cliente vai retirar na loja —{' '}
+                  <strong>não gerar etiqueta de envio</strong>. O endereço
+                  abaixo é o da própria loja. Confirme documento com foto e nº
+                  do pedido na entrega.
+                </p>
+              )}
               <p className='text-sm text-gray-900'>
                 {order.shippingAddress.street}, {order.shippingAddress.number}
               </p>

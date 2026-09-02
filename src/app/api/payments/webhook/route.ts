@@ -29,7 +29,7 @@ import {
   isRefundedStatus,
   MercadoPagoError,
 } from '@/lib/services/mercadopago';
-import { sendOrderConfirmation } from '@/lib/services/email';
+import { sendOrderPaidEmails } from '@/lib/services/email';
 import { processOrderStock, restoreOrderStock } from '@/lib/services/inventory';
 
 export const runtime = 'nodejs';
@@ -171,23 +171,13 @@ export async function POST(request: Request) {
       // 6. Estoque: decremento idempotente (claim atômico no inventory.ts)
       await processOrderStock(order._id);
 
-      // 7. Confirmação por e-mail — é AQUI que o PIX pago é notificado
-      // (o checkout só envia para cartão aprovado na hora). Fire-and-forget.
+      // 7. Confirmação por e-mail (CLIENTE + ADMIN) — é AQUI que o PIX pago
+      // é notificado (o checkout só envia para cartão aprovado na hora).
+      // AGUARDADO (await): na Vercel, promises pendentes depois da resposta
+      // são CONGELADAS — o fire-and-forget original fazia os e-mails
+      // morrerem silenciosamente. sendOrderPaidEmails nunca lança.
       const email = order.customerSnapshot?.email || order.guestEmail;
-      if (email) {
-        sendOrderConfirmation(email, order.orderNumber).catch(e =>
-          console.error(
-            '[MP Webhook] falha ao enviar confirmação:',
-            order.orderNumber,
-            e,
-          ),
-        );
-      } else {
-        console.error(
-          '[MP Webhook] pedido pago sem e-mail de contato:',
-          order.orderNumber,
-        );
-      }
+      await sendOrderPaidEmails(email, order.orderNumber);
 
       return NextResponse.json({ received: true });
     }

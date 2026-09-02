@@ -12,6 +12,18 @@
 // v2: EMAIL_FROM ausente em produção agora LOGA ERRO — o fallback
 //     onboarding@resend.dev só entrega para o dono da conta Resend, ou seja,
 //     clientes não receberiam nada, silenciosamente.
+// v3: NOTIFICAÇÃO DO ADMIN — sendAdminNewOrderNotification avisa a loja
+//     (ADMIN_EMAIL ou company.email) de cada pedido pago, com dados do
+//     cliente, itens e link direto para o painel.
+// v3: sendOrderPaidEmails — consolidador (cliente + admin em paralelo, uma
+//     única busca do pedido, nunca lança). É a função que os fluxos de
+//     pagamento devem AGUARDAR (await): na Vercel, promises pendentes após
+//     a resposta são congeladas — o fire-and-forget original fazia os
+//     e-mails morrerem silenciosamente.
+// v3: enriquecimento extraído para buildOrderDetailsHtml (reuso).
+// v7 (retirada na loja): pedidos com shipping.carrier === 'Retirada na Loja'
+//     mostram "Retirada na loja" + endereço da loja + instrução, e a linha
+//     de frete vira "Grátis (retirada na loja)".
 
 import { Resend } from 'resend';
 import { company } from '@/lib/config/company';
@@ -122,90 +134,103 @@ export async function sendOtpEmail(to: string, code: string): Promise<boolean> {
 
 // ───────────────────────── Confirmação de pedido ─────────────────────────
 
-/**
- * E-mail de pedido confirmado (pagamento aprovado).
- * Busca o pedido pelo orderNumber para incluir itens, totais e endereço.
- * Se não encontrar (ou falhar a busca), envia a versão simples — o e-mail
- * NUNCA deixa de sair por causa do enriquecimento.
- */
-export async function sendOrderConfirmation(
-  to: string,
-  orderId: string, // orderNumber (ex: WEB260707-1234)
-): Promise<boolean> {
-  const orderUrl = `${company.url}/meus-pedidos`;
+/** Pedido lean para composição de e-mails. `any` deliberado: o lean() do
+ *  Mongoose com este schema é verboso de tipar e o uso aqui é só leitura. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LeanOrder = any;
 
-  let detailsHtml = '';
+/** Busca o pedido para enriquecer e-mails. NUNCA lança — devolve null. */
+async function fetchOrderLean(orderNumber: string): Promise<LeanOrder | null> {
   try {
     await connectDB();
-    const order = await Order.findOne({ orderNumber: orderId }).lean();
-    if (order) {
-      const rows = (order.items || [])
-        .map(
-          i => `
-          <tr>
-            <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;color:#374151;font-size:13px;">
-              ${i.name}${i.variant ? ` <span style="color:#9ca3af;">(${i.variant})</span>` : ''}
-              <span style="color:#9ca3af;"> × ${i.quantity}</span>
-            </td>
-            <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;color:#374151;font-size:13px;text-align:right;white-space:nowrap;">
-              ${brl(i.price * i.quantity)}
-            </td>
-          </tr>`,
-        )
-        .join('');
-
-      const addr = order.shippingAddress;
-      const addressHtml = addr?.street
-        ? `
-        <p style="margin:16px 0 0;color:#6b7280;font-size:12px;line-height:1.5;">
-          <strong style="color:#374151;">Entrega:</strong><br/>
-          ${addr.name || ''}<br/>
-          ${addr.street}, ${addr.number}${addr.complement ? ` - ${addr.complement}` : ''}<br/>
-          ${addr.neighborhood} · ${addr.city} - ${addr.state} · CEP ${addr.cep}
-        </p>`
-        : '';
-
-      detailsHtml = `
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 4px;">
-        ${rows}
-        <tr>
-          <td style="padding:8px 0 2px;color:#6b7280;font-size:13px;">Frete</td>
-          <td style="padding:8px 0 2px;color:#6b7280;font-size:13px;text-align:right;">${brl(order.shippingCost)}</td>
-        </tr>
-        ${
-          order.discount > 0
-            ? `<tr>
-          <td style="padding:2px 0;color:#16a34a;font-size:13px;">Desconto${order.coupon ? ` (${order.coupon})` : ''}</td>
-          <td style="padding:2px 0;color:#16a34a;font-size:13px;text-align:right;">- ${brl(order.discount)}</td>
-        </tr>`
-            : ''
-        }
-        <tr>
-          <td style="padding:10px 0 0;color:#111827;font-size:15px;font-weight:700;">Total</td>
-          <td style="padding:10px 0 0;color:#111827;font-size:15px;font-weight:700;text-align:right;">${brl(order.total)}</td>
-        </tr>
-      </table>
-      <p style="margin:8px 0 0;color:#6b7280;font-size:12px;">
-        Pagamento: ${PAYMENT_LABEL[order.payment?.method || ''] || order.payment?.method || '-'}
-        ${order.payment?.installments && order.payment.installments > 1 ? ` em ${order.payment.installments}x` : ''}
-      </p>
-      ${addressHtml}`;
-    }
+    return await Order.findOne({ orderNumber }).lean();
   } catch (e) {
     console.error(
-      '[Email] falha ao enriquecer confirmação (envia versão simples):',
+      '[Email] falha ao buscar pedido (envia versão simples):',
+      orderNumber,
       e,
     );
+    return null;
   }
+}
 
-  return sendEmail({
-    to,
-    subject: `Pedido Confirmado #${orderId} - Surfers Paradise`,
+/** Tabela de itens + totais + pagamento + endereço/retirada de um pedido. */
+function buildOrderDetailsHtml(order: LeanOrder): string {
+  const rows = (order.items || [])
+    .map(
+      (i: {
+        name: string;
+        variant?: string;
+        quantity: number;
+        price: number;
+      }) => `
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;color:#374151;font-size:13px;">
+          ${i.name}${i.variant ? ` <span style="color:#9ca3af;">(${i.variant})</span>` : ''}
+          <span style="color:#9ca3af;"> × ${i.quantity}</span>
+        </td>
+        <td style="padding:8px 0;border-bottom:1px solid #f0f0f0;color:#374151;font-size:13px;text-align:right;white-space:nowrap;">
+          ${brl(i.price * i.quantity)}
+        </td>
+      </tr>`,
+    )
+    .join('');
+
+  const addr = order.shippingAddress;
+  // v7: pedido de RETIRADA NA LOJA — shippingAddress contém o endereço
+  // da loja; o marcador vem do checkout (shipping.carrier).
+  const isPickup = order.shipping?.carrier === 'Retirada na Loja';
+  const addressHtml = addr?.street
+    ? `
+    <p style="margin:16px 0 0;color:#6b7280;font-size:12px;line-height:1.5;">
+      <strong style="color:#374151;">${isPickup ? 'Retirada na loja' : 'Entrega'}:</strong><br/>
+      ${isPickup ? '' : `${addr.name || ''}<br/>`}
+      ${addr.street}, ${addr.number}${addr.complement ? ` - ${addr.complement}` : ''}<br/>
+      ${addr.neighborhood} · ${addr.city} - ${addr.state} · CEP ${addr.cep}
+      ${isPickup ? '<br/>Retire após a confirmação do pagamento, apresentando documento com foto e o número do pedido.' : ''}
+    </p>`
+    : '';
+
+  return `
+  <table style="width:100%;border-collapse:collapse;margin:8px 0 4px;">
+    ${rows}
+    <tr>
+      <td style="padding:8px 0 2px;color:#6b7280;font-size:13px;">Frete</td>
+      <td style="padding:8px 0 2px;color:#6b7280;font-size:13px;text-align:right;">${isPickup ? 'Grátis (retirada na loja)' : brl(order.shippingCost)}</td>
+    </tr>
+    ${
+      order.discount > 0
+        ? `<tr>
+      <td style="padding:2px 0;color:#16a34a;font-size:13px;">Desconto${order.coupon ? ` (${order.coupon})` : ''}</td>
+      <td style="padding:2px 0;color:#16a34a;font-size:13px;text-align:right;">- ${brl(order.discount)}</td>
+    </tr>`
+        : ''
+    }
+    <tr>
+      <td style="padding:10px 0 0;color:#111827;font-size:15px;font-weight:700;">Total</td>
+      <td style="padding:10px 0 0;color:#111827;font-size:15px;font-weight:700;text-align:right;">${brl(order.total)}</td>
+    </tr>
+  </table>
+  <p style="margin:8px 0 0;color:#6b7280;font-size:12px;">
+    Pagamento: ${PAYMENT_LABEL[order.payment?.method || ''] || order.payment?.method || '-'}
+    ${order.payment?.installments && order.payment.installments > 1 ? ` em ${order.payment.installments}x` : ''}
+  </p>
+  ${addressHtml}`;
+}
+
+/** Monta o e-mail de confirmação do CLIENTE (assunto + html). */
+function customerConfirmationEmail(
+  orderNumber: string,
+  detailsHtml: string,
+): Omit<EmailParams, 'to'> {
+  const orderUrl = `${company.url}/meus-pedidos`;
+  return {
+    subject: `Pedido Confirmado #${orderNumber} - Surfers Paradise`,
     html: shell(`
       <div style="padding:32px 28px;">
         <h2 style="margin:0 0 12px;color:#111827;font-size:20px;">Pedido confirmado! 🤙</h2>
         <p style="margin:0 0 20px;color:#4b5563;font-size:15px;line-height:1.6;">
-          Recebemos o pagamento do seu pedido <strong>#${orderId}</strong>.
+          Recebemos o pagamento do seu pedido <strong>#${orderNumber}</strong>.
           Vamos preparar tudo e te avisamos quando for despachado.
         </p>
         ${detailsHtml}
@@ -215,7 +240,133 @@ export async function sendOrderConfirmation(
           </a>
         </div>
       </div>`),
+  };
+}
+
+/** Monta o e-mail de novo pedido para o ADMIN (assunto + html). */
+function adminNewOrderEmail(
+  orderNumber: string,
+  order: LeanOrder | null,
+  detailsHtml: string,
+): Omit<EmailParams, 'to'> {
+  const c = order?.customerSnapshot;
+  const isPickup = order?.shipping?.carrier === 'Retirada na Loja';
+  const adminUrl = order?._id
+    ? `${company.url}/admin/pedidos/${String(order._id)}`
+    : `${company.url}/admin/pedidos`;
+
+  const customerHtml = c
+    ? `
+    <p style="margin:0 0 16px;color:#4b5563;font-size:13px;line-height:1.7;">
+      <strong style="color:#374151;">Cliente:</strong> ${c.name || '-'}<br/>
+      <strong style="color:#374151;">E-mail:</strong> ${c.email || order?.guestEmail || '-'}<br/>
+      <strong style="color:#374151;">WhatsApp:</strong> ${c.phone || '-'}<br/>
+      <strong style="color:#374151;">CPF:</strong> ${c.cpf || '-'}
+    </p>`
+    : '';
+
+  const pickupBanner = isPickup
+    ? `
+    <p style="margin:0 0 16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px;">
+      🏬 <strong>Retirada na loja</strong> — não gerar etiqueta de envio.
+    </p>`
+    : '';
+
+  return {
+    subject: `💰 Novo pedido pago #${orderNumber}${order?.total != null ? ` · ${brl(order.total)}` : ''} - Surfers Paradise`,
+    html: shell(`
+      <div style="padding:32px 28px;">
+        <h2 style="margin:0 0 12px;color:#111827;font-size:20px;">Venda confirmada! 💰</h2>
+        <p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">
+          O pedido <strong>#${orderNumber}</strong> foi pago e está pronto para ser preparado.
+        </p>
+        ${pickupBanner}
+        ${customerHtml}
+        ${detailsHtml}
+        <div style="text-align:center;margin:28px 0 0;">
+          <a href="${adminUrl}" style="display:inline-block;background:#1A1A1A;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 36px;border-radius:8px;">
+            Abrir no painel
+          </a>
+        </div>
+      </div>`),
+  };
+}
+
+/** Destinatário das notificações da loja (env ADMIN_EMAIL > company.email). */
+const ADMIN_TO = process.env.ADMIN_EMAIL || company.email;
+
+/**
+ * E-mail de pedido confirmado (pagamento aprovado) — CLIENTE.
+ * Busca o pedido pelo orderNumber para incluir itens, totais e endereço.
+ * Se não encontrar (ou falhar a busca), envia a versão simples — o e-mail
+ * NUNCA deixa de sair por causa do enriquecimento.
+ */
+export async function sendOrderConfirmation(
+  to: string,
+  orderId: string, // orderNumber (ex: WEB260707-1234)
+): Promise<boolean> {
+  const order = await fetchOrderLean(orderId);
+  const detailsHtml = order ? buildOrderDetailsHtml(order) : '';
+  return sendEmail({ to, ...customerConfirmationEmail(orderId, detailsHtml) });
+}
+
+/**
+ * E-mail de novo pedido pago — ADMIN (loja).
+ * Destinatário: ADMIN_EMAIL (env) ou company.email.
+ */
+export async function sendAdminNewOrderNotification(
+  orderNumber: string,
+): Promise<boolean> {
+  const order = await fetchOrderLean(orderNumber);
+  const detailsHtml = order ? buildOrderDetailsHtml(order) : '';
+  return sendEmail({
+    to: ADMIN_TO,
+    ...adminNewOrderEmail(orderNumber, order, detailsHtml),
   });
+}
+
+/**
+ * CONSOLIDADOR: cliente + admin notificados de um pedido PAGO, com UMA
+ * busca no banco e envios em paralelo. NUNCA lança (falha de e-mail não
+ * pode derrubar webhook/checkout). DEVE ser chamado com await — na Vercel,
+ * promises pendentes após a resposta HTTP são congeladas e nunca executam.
+ */
+export async function sendOrderPaidEmails(
+  customerEmail: string | null | undefined,
+  orderNumber: string,
+): Promise<{ customer: boolean; admin: boolean }> {
+  try {
+    const order = await fetchOrderLean(orderNumber);
+    const detailsHtml = order ? buildOrderDetailsHtml(order) : '';
+
+    const [customer, admin] = await Promise.all([
+      customerEmail
+        ? sendEmail({
+            to: customerEmail,
+            ...customerConfirmationEmail(orderNumber, detailsHtml),
+          })
+        : Promise.resolve(false),
+      sendEmail({
+        to: ADMIN_TO,
+        ...adminNewOrderEmail(orderNumber, order, detailsHtml),
+      }),
+    ]);
+
+    if (!customerEmail) {
+      console.error('[Email] pedido pago sem e-mail de cliente:', orderNumber);
+    }
+    if (customerEmail && !customer) {
+      console.error('[Email] confirmação ao CLIENTE falhou:', orderNumber);
+    }
+    if (!admin) {
+      console.error('[Email] notificação ao ADMIN falhou:', orderNumber);
+    }
+    return { customer, admin };
+  } catch (e) {
+    // Rede de segurança absoluta — nunca propagar para o fluxo de pagamento
+    console.error('[Email] sendOrderPaidEmails falhou:', orderNumber, e);
+    return { customer: false, admin: false };
+  }
 }
 
 // ───────────────────────── Atualização de status ─────────────────────────

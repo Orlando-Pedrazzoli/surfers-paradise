@@ -17,6 +17,13 @@
 //     existir o estado "nenhum frete selecionado" no caminho feliz. Rede de
 //     segurança: sem seleção, o botão mostra erro claro + scroll suave até a
 //     seção. Sidebar agora só EXIBE o frete escolhido.
+// v7: RETIRADA NA LOJA FÍSICA — toggle "Receber em casa / Retirar na loja".
+//     Na retirada: frete = R$ 0 (compra abaixo do frete grátis paga só o
+//     produto), campos de endereço ocultos (só nome/e-mail/CPF/celular),
+//     cotação Melhor Envio ignorada e o pedido é criado com o ENDEREÇO DA
+//     LOJA como shippingAddress (satisfaz o Zod do servidor e o gateway) e
+//     shipping = { carrier: 'Retirada na Loja' } — marcador usado no e-mail,
+//     no admin e em Meus Pedidos. Nenhuma mudança de schema no servidor.
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -31,7 +38,10 @@ import {
   Loader2,
   Package,
   Tag,
+  Store,
+  Truck,
 } from 'lucide-react';
+import { company, getFormattedAddress } from '@/lib/config/company';
 import PaymentForm from '@/components/checkout/PaymentForm';
 import ShippingOptions from '@/components/checkout/ShippingOptions';
 import FreeShippingProgress from '@/components/checkout/FreeShippingProgress';
@@ -81,6 +91,14 @@ function isValidCpf(raw: string): boolean {
   return true;
 }
 
+// ─── v7: Retirada na loja ───
+// Marcador persistido em order.shipping.carrier — NÃO alterar sem atualizar
+// email.ts e admin/pedidos/[id] (que detectam retirada por este valor).
+export const PICKUP_CARRIER = 'Retirada na Loja';
+const PICKUP_METHOD = 'Retirada na Loja Física';
+
+type DeliveryMethod = 'delivery' | 'pickup';
+
 const emptyForm = {
   name: '',
   email: '',
@@ -111,6 +129,9 @@ export default function CheckoutPage() {
   // (Se o shape do useAuth for diferente de { user }, ajustar aqui.)
   const { user } = useAuth();
   const [form, setForm] = useState(emptyForm);
+  // v7: como o cliente quer receber — entrega em casa (default) ou retirada
+  const [deliveryMethod, setDeliveryMethod] =
+    useState<DeliveryMethod>('delivery');
   const [addressDone, setAddressDone] = useState(false);
   const [error, setError] = useState('');
   const [cepLoading, setCepLoading] = useState(false);
@@ -187,7 +208,9 @@ export default function CheckoutPage() {
     }
   }, [quotes, selectedShipping]);
 
-  const shippingCost = selectedShipping?.finalPrice ?? 0;
+  const isPickup = deliveryMethod === 'pickup';
+  // v7: na retirada o frete é SEMPRE 0, independente de cotação/seleção
+  const shippingCost = isPickup ? 0 : (selectedShipping?.finalPrice ?? 0);
   const cepComplete = onlyDigits(form.cep).length === 8;
 
   async function lookupCep(cep: string) {
@@ -219,6 +242,8 @@ export default function CheckoutPage() {
       return 'E-mail inválido.';
     if (!isValidCpf(form.cpf)) return 'CPF inválido. Confira os números.';
     if (onlyDigits(form.phone).length < 10) return 'Telefone inválido.';
+    // v7: retirada na loja não exige endereço do cliente
+    if (isPickup) return null;
     if (onlyDigits(form.cep).length !== 8) return 'CEP inválido.';
     if (!form.street.trim()) return 'Informe a rua.';
     if (!form.number.trim()) return 'Informe o número.';
@@ -234,7 +259,7 @@ export default function CheckoutPage() {
       setError(err);
       return;
     }
-    if (!selectedShipping) {
+    if (!isPickup && !selectedShipping) {
       // Rede de segurança: só acontece se a cotação falhou/não retornou
       // (a pré-seleção automática cobre o caminho feliz).
       setError('Escolha um método de envio para continuar.');
@@ -303,7 +328,15 @@ export default function CheckoutPage() {
           <div className='bg-white rounded-lg shadow-sm p-6'>
             <div className='flex items-center justify-between mb-4'>
               <h2 className='text-lg font-semibold flex items-center gap-2'>
-                <MapPin size={18} /> Dados e Endereço de Entrega
+                {isPickup ? (
+                  <>
+                    <Store size={18} /> Dados para Retirada na Loja
+                  </>
+                ) : (
+                  <>
+                    <MapPin size={18} /> Dados e Endereço de Entrega
+                  </>
+                )}
               </h2>
               {addressDone && (
                 <button
@@ -320,17 +353,34 @@ export default function CheckoutPage() {
                 <p className='font-medium'>
                   {form.name} · {form.cpf}
                 </p>
-                <p>
-                  {form.street}, {form.number}
-                  {form.complement && ` - ${form.complement}`}
-                </p>
-                <p>
-                  {form.neighborhood} · {form.city} - {form.state} · {form.cep}
-                </p>
+                {isPickup ? (
+                  <p className='flex items-start gap-1.5'>
+                    <Store
+                      size={14}
+                      className='mt-0.5 shrink-0 text-[#FF6600]'
+                    />
+                    <span>
+                      <span className='font-medium'>{PICKUP_METHOD}</span>
+                      <br />
+                      {getFormattedAddress()}
+                    </span>
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      {form.street}, {form.number}
+                      {form.complement && ` - ${form.complement}`}
+                    </p>
+                    <p>
+                      {form.neighborhood} · {form.city} - {form.state} ·{' '}
+                      {form.cep}
+                    </p>
+                  </>
+                )}
                 <p className='text-gray-500'>
                   {form.email} · {form.phone}
                 </p>
-                {selectedShipping && (
+                {!isPickup && selectedShipping && (
                   <p className='mt-2 flex items-center gap-1.5 text-gray-700'>
                     <Package size={14} className='text-[#FF6600]' />
                     {selectedShipping.company} — {selectedShipping.name} · até{' '}
@@ -349,6 +399,48 @@ export default function CheckoutPage() {
               </div>
             ) : (
               <div className='space-y-3'>
+                {/* ─── v7: COMO DESEJA RECEBER? ─── */}
+                <div
+                  className='grid grid-cols-2 gap-2'
+                  role='radiogroup'
+                  aria-label='Forma de recebimento'
+                >
+                  <button
+                    type='button'
+                    role='radio'
+                    aria-checked={!isPickup}
+                    onClick={() => setDeliveryMethod('delivery')}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 text-sm font-medium transition ${
+                      !isPickup
+                        ? 'border-[#FF6600] bg-orange-50 text-gray-900 ring-1 ring-[#FF6600]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    <Truck
+                      size={16}
+                      className={!isPickup ? 'text-[#FF6600]' : 'text-gray-400'}
+                    />
+                    Receber em casa
+                  </button>
+                  <button
+                    type='button'
+                    role='radio'
+                    aria-checked={isPickup}
+                    onClick={() => setDeliveryMethod('pickup')}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 text-sm font-medium transition ${
+                      isPickup
+                        ? 'border-[#FF6600] bg-orange-50 text-gray-900 ring-1 ring-[#FF6600]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    <Store
+                      size={16}
+                      className={isPickup ? 'text-[#FF6600]' : 'text-gray-400'}
+                    />
+                    Retirar na loja
+                  </button>
+                </div>
+
                 <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                   <input
                     className={inputCls}
@@ -376,69 +468,101 @@ export default function CheckoutPage() {
                   />
                 </div>
 
-                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
-                  <div className='relative'>
-                    <input
-                      className={inputCls}
-                      placeholder='CEP'
-                      value={form.cep}
-                      onChange={e => set('cep', maskCep(e.target.value))}
-                      onBlur={e => lookupCep(e.target.value)}
-                    />
-                    {cepLoading && (
-                      <Loader2
-                        size={16}
-                        className='absolute right-3 top-2.5 animate-spin text-gray-400'
+                {!isPickup && (
+                  <>
+                    <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                      <div className='relative'>
+                        <input
+                          className={inputCls}
+                          placeholder='CEP'
+                          value={form.cep}
+                          onChange={e => set('cep', maskCep(e.target.value))}
+                          onBlur={e => lookupCep(e.target.value)}
+                        />
+                        {cepLoading && (
+                          <Loader2
+                            size={16}
+                            className='absolute right-3 top-2.5 animate-spin text-gray-400'
+                          />
+                        )}
+                      </div>
+                      <input
+                        className={`${inputCls} sm:col-span-2`}
+                        placeholder='Rua / Logradouro'
+                        value={form.street}
+                        onChange={e => set('street', e.target.value)}
                       />
-                    )}
+                    </div>
+
+                    <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                      <input
+                        className={inputCls}
+                        placeholder='Número'
+                        value={form.number}
+                        onChange={e => set('number', e.target.value)}
+                      />
+                      <input
+                        className={inputCls}
+                        placeholder='Complemento (opcional)'
+                        value={form.complement}
+                        onChange={e => set('complement', e.target.value)}
+                      />
+                      <input
+                        className={inputCls}
+                        placeholder='Bairro'
+                        value={form.neighborhood}
+                        onChange={e => set('neighborhood', e.target.value)}
+                      />
+                    </div>
+
+                    <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+                      <input
+                        className={`${inputCls} sm:col-span-2`}
+                        placeholder='Cidade'
+                        value={form.city}
+                        onChange={e => set('city', e.target.value)}
+                      />
+                      <input
+                        className={inputCls}
+                        placeholder='UF'
+                        maxLength={2}
+                        value={form.state}
+                        onChange={e =>
+                          set('state', e.target.value.toUpperCase())
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* ─── v7: CARD DA LOJA (retirada) ─── */}
+                {isPickup && (
+                  <div className='rounded-lg border border-gray-200 bg-gray-50 p-4'>
+                    <h3 className='mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900'>
+                      <Store size={16} className='text-[#FF6600]' />
+                      Retirada na Loja Física
+                      <span className='rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700'>
+                        Sem custo de frete
+                      </span>
+                    </h3>
+                    <p className='text-sm font-medium text-gray-900'>
+                      {company.name}
+                    </p>
+                    <p className='text-sm text-gray-700'>
+                      {getFormattedAddress()}
+                    </p>
+                    <p className='mt-1 text-xs text-gray-500'>
+                      {company.businessHours}
+                    </p>
+                    <p className='mt-2 text-xs text-gray-500'>
+                      Após a confirmação do pagamento, retire seu pedido na loja
+                      apresentando documento com foto e o número do pedido.
+                    </p>
                   </div>
-                  <input
-                    className={`${inputCls} sm:col-span-2`}
-                    placeholder='Rua / Logradouro'
-                    value={form.street}
-                    onChange={e => set('street', e.target.value)}
-                  />
-                </div>
-
-                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
-                  <input
-                    className={inputCls}
-                    placeholder='Número'
-                    value={form.number}
-                    onChange={e => set('number', e.target.value)}
-                  />
-                  <input
-                    className={inputCls}
-                    placeholder='Complemento (opcional)'
-                    value={form.complement}
-                    onChange={e => set('complement', e.target.value)}
-                  />
-                  <input
-                    className={inputCls}
-                    placeholder='Bairro'
-                    value={form.neighborhood}
-                    onChange={e => set('neighborhood', e.target.value)}
-                  />
-                </div>
-
-                <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
-                  <input
-                    className={`${inputCls} sm:col-span-2`}
-                    placeholder='Cidade'
-                    value={form.city}
-                    onChange={e => set('city', e.target.value)}
-                  />
-                  <input
-                    className={inputCls}
-                    placeholder='UF'
-                    maxLength={2}
-                    value={form.state}
-                    onChange={e => set('state', e.target.value.toUpperCase())}
-                  />
-                </div>
+                )}
 
                 {/* ─── v5: MÉTODO DE ENVIO no fluxo principal ─── */}
-                {cepComplete && (
+                {!isPickup && cepComplete && (
                   <div
                     ref={shippingSectionRef}
                     className='rounded-lg border border-gray-200 bg-gray-50 p-4'
@@ -481,7 +605,7 @@ export default function CheckoutPage() {
           {/* Pagamento */}
           <div className='bg-white rounded-lg shadow-sm p-6'>
             <h2 className='text-lg font-semibold mb-4'>Forma de Pagamento</h2>
-            {addressDone && selectedShipping ? (
+            {addressDone && (isPickup || selectedShipping) ? (
               <PaymentForm
                 customer={{
                   name: form.name,
@@ -489,26 +613,52 @@ export default function CheckoutPage() {
                   document: form.cpf,
                   phone: form.phone,
                 }}
-                shippingAddress={{
-                  name: form.name,
-                  street: form.street,
-                  number: form.number,
-                  complement: form.complement,
-                  neighborhood: form.neighborhood,
-                  city: form.city,
-                  state: form.state,
-                  cep: form.cep,
-                  phone: form.phone,
-                  cpf: form.cpf,
-                }}
+                shippingAddress={
+                  // v7: retirada — endereço da LOJA no pedido (o Zod do
+                  // servidor exige endereço completo; o marcador do modo
+                  // fica em shipping.carrier = PICKUP_CARRIER)
+                  isPickup
+                    ? {
+                        name: form.name,
+                        street: company.address.street,
+                        number: company.address.number,
+                        complement: company.address.complement,
+                        neighborhood: company.address.neighborhood,
+                        city: company.address.city,
+                        state: company.address.state,
+                        cep: company.address.cep,
+                        phone: form.phone,
+                        cpf: form.cpf,
+                      }
+                    : {
+                        name: form.name,
+                        street: form.street,
+                        number: form.number,
+                        complement: form.complement,
+                        neighborhood: form.neighborhood,
+                        city: form.city,
+                        state: form.state,
+                        cep: form.cep,
+                        phone: form.phone,
+                        cpf: form.cpf,
+                      }
+                }
                 items={paymentItems}
                 subtotal={subtotal}
                 shippingCost={shippingCost}
-                shipping={{
-                  method: selectedShipping.name,
-                  carrier: selectedShipping.company,
-                  estimatedDays: selectedShipping.deliveryDays,
-                }}
+                shipping={
+                  isPickup
+                    ? {
+                        method: PICKUP_METHOD,
+                        carrier: PICKUP_CARRIER,
+                        estimatedDays: 0,
+                      }
+                    : {
+                        method: selectedShipping!.name,
+                        carrier: selectedShipping!.company,
+                        estimatedDays: selectedShipping!.deliveryDays,
+                      }
+                }
                 coupon={appliedCoupon?.code}
                 couponDiscount={discount}
                 userId={user?.id}
@@ -517,8 +667,9 @@ export default function CheckoutPage() {
               />
             ) : (
               <p className='text-sm text-gray-500'>
-                Preencha seus dados e selecione o envio para escolher a forma de
-                pagamento.
+                {isPickup
+                  ? 'Preencha seus dados para escolher a forma de pagamento.'
+                  : 'Preencha seus dados e selecione o envio para escolher a forma de pagamento.'}
               </p>
             )}
           </div>
@@ -562,11 +713,24 @@ export default function CheckoutPage() {
               ))}
             </div>
 
-            {/* Frete grátis: barra de progresso */}
-            <FreeShippingProgress subtotal={subtotal} />
+            {/* Frete grátis: barra de progresso (irrelevante na retirada) */}
+            {!isPickup && <FreeShippingProgress subtotal={subtotal} />}
+
+            {/* v7: card de retirada na sidebar */}
+            {isPickup && (
+              <div className='flex items-start gap-2 rounded-lg border border-gray-200 bg-white p-3'>
+                <Store size={16} className='mt-0.5 shrink-0 text-[#FF6600]' />
+                <div className='min-w-0 text-sm'>
+                  <p className='font-medium text-gray-900'>{PICKUP_METHOD}</p>
+                  <p className='text-xs text-gray-500'>
+                    {getFormattedAddress()}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* v5: a sidebar só EXIBE o envio escolhido (seleção no fluxo principal) */}
-            {selectedShipping && (
+            {!isPickup && selectedShipping && (
               <div className='flex items-start gap-2 rounded-lg border border-gray-200 bg-white p-3'>
                 <Package size={16} className='mt-0.5 shrink-0 text-[#FF6600]' />
                 <div className='min-w-0 text-sm'>
@@ -615,8 +779,12 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className='flex justify-between text-sm'>
-                <span className='text-gray-600'>Frete</span>
-                {selectedShipping ? (
+                <span className='text-gray-600'>
+                  {isPickup ? 'Retirada na loja' : 'Frete'}
+                </span>
+                {isPickup ? (
+                  <span className='font-medium text-green-600'>Grátis</span>
+                ) : selectedShipping ? (
                   selectedShipping.isFree ? (
                     <span className='font-medium text-green-600'>Grátis</span>
                   ) : (

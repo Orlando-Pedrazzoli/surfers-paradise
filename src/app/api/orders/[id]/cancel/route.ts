@@ -82,7 +82,8 @@ export async function POST(
     // 3. Notifica o cliente (só online; balcão não tem por quê)
     const customerEmail = order.customerSnapshot?.email || order.guestEmail;
     if (order.channel === 'online' && customerEmail) {
-      sendOrderStatusUpdate(
+      // AGUARDADO: fire-and-forget morre na Vercel após a resposta.
+      await sendOrderStatusUpdate(
         customerEmail,
         order.orderNumber,
         'cancelled',
