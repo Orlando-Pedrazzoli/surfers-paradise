@@ -8,7 +8,13 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Heart, ShoppingCart } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Heart,
+  ShoppingCart,
+  X,
+} from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 import {
   calculateInstallments,
@@ -43,6 +49,9 @@ interface ProductCardProps {
   };
   /** When true, renders an expanded layout (used by 1-column mobile view) */
   expanded?: boolean;
+  /** v2: na página da lista de desejos, troca o coração por um X explícito
+   *  de remoção (coração cheio numa wishlist é ambíguo — parece decoração) */
+  removeMode?: boolean;
 }
 
 interface FamilySibling {
@@ -64,6 +73,7 @@ interface FamilySibling {
 export default function ProductCard({
   product,
   expanded = false,
+  removeMode = false,
 }: ProductCardProps) {
   const { addToCart, openCart } = useCart();
   // v2: coração ligado ao WishlistProvider (o useState local era fake —
@@ -237,17 +247,26 @@ export default function ProductCard({
 
         <button
           onClick={toggleFavorite}
-          className={`absolute ${expanded ? 'top-3 right-3 w-10 h-10' : 'top-2 right-2 w-8 h-8'} flex items-center justify-center`}
-          aria-label='Favoritar'
+          className={`absolute ${expanded ? 'top-3 right-3 w-10 h-10' : 'top-2 right-2 w-8 h-8'} flex items-center justify-center ${
+            removeMode
+              ? 'bg-white/95 rounded-full shadow-md text-gray-500 hover:text-white hover:bg-red-500 transition-colors'
+              : ''
+          }`}
+          aria-label={removeMode ? 'Remover da lista de desejos' : 'Favoritar'}
+          title={removeMode ? 'Remover da lista de desejos' : undefined}
         >
-          <Heart
-            size={expanded ? 24 : 20}
-            className={
-              isFavorite
-                ? 'fill-[#FF6600] text-[#FF6600]'
-                : 'text-gray-400 hover:text-[#FF6600] transition-colors'
-            }
-          />
+          {removeMode ? (
+            <X size={expanded ? 20 : 16} />
+          ) : (
+            <Heart
+              size={expanded ? 24 : 20}
+              className={
+                isFavorite
+                  ? 'fill-[#FF6600] text-[#FF6600]'
+                  : 'text-gray-400 hover:text-[#FF6600] transition-colors'
+              }
+            />
+          )}
         </button>
 
         {/* ═══ BADGES ═══

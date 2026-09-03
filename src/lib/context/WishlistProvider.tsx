@@ -65,6 +65,12 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   const [ids, setIds] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const syncedRef = useRef(false);
+  // Espelho dos ids para o "Desfazer" do toast: o callback do toast roda
+  // depois do render e não pode confiar no closure de ids (estaria stale).
+  const idsRef = useRef<string[]>([]);
+  useEffect(() => {
+    idsRef.current = ids;
+  }, [ids]);
 
   // 1) Hidrata do localStorage (guest e logado começam daqui).
   // setIds só quando há algo salvo (mesmo padrão do CartProvider) —
@@ -74,7 +80,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     // Hidratação ÚNICA no mount (deps []): não há cascata possível — o
     // efeito nunca re-executa. Mesmo padrão do CartProvider (localStorage
     // é sistema externo; a leitura só pode acontecer no client, pós-mount).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hidratação única de sistema externo no mount
     if (stored.length > 0) setIds(stored);
     setHydrated(true);
   }, []);
@@ -118,17 +124,53 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
   const toggleWishlist = useCallback(
     (productId: string, productName?: string): boolean => {
-      const adding = !ids.includes(productId);
+      // idsRef (não o closure de ids): permite chamar com segurança a partir
+      // de callbacks tardios, como o botão "Desfazer" do toast.
+      const adding = !idsRef.current.includes(productId);
 
       // Optimistic: UI responde imediatamente
       setIds(prev =>
         adding ? [productId, ...prev] : prev.filter(id => id !== productId),
       );
-      toast.success(
-        adding
-          ? `${productName || 'Produto'} adicionado à lista de desejos ❤️`
-          : `${productName || 'Produto'} removido da lista de desejos`,
-      );
+
+      if (adding) {
+        toast.success(
+          `${productName || 'Produto'} adicionado à lista de desejos ❤️`,
+        );
+      } else {
+        // Remoção com DESFAZER: rede de segurança contra clique acidental
+        toast(
+          t => (
+            <span className='flex items-center gap-3'>
+              <span>{productName || 'Produto'} removido da lista</span>
+              <button
+                type='button'
+                onClick={() => {
+                  // Undo inline: re-adiciona sem recursão nem refs de função
+                  toast.dismiss(t.id);
+                  setIds(prev =>
+                    prev.includes(productId) ? prev : [productId, ...prev],
+                  );
+                  toast.success(
+                    `${productName || 'Produto'} de volta à lista ❤️`,
+                  );
+                  if (status === 'authenticated') {
+                    fetch('/api/wishlist', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ productId }),
+                    }).catch(() => {});
+                  }
+                }}
+                className='font-bold text-[#FF6600] hover:underline whitespace-nowrap'
+              >
+                Desfazer
+              </button>
+            </span>
+          ),
+          { duration: 5000 },
+        );
+      }
 
       // Persistência remota em background (só logado); reverte se falhar
       if (status === 'authenticated') {
@@ -157,7 +199,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
       return adding;
     },
-    [ids, status],
+    [status],
   );
 
   return (
