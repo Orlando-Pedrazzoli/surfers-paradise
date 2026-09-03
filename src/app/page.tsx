@@ -20,6 +20,7 @@ import ImageBanner from '@/components/home/ImageBanner';
 import PromoBanners from '@/components/home/PromoBanners';
 import CategoryBanners from '@/components/home/CategoryBanners';
 import ReviewsCarousel from '@/components/home/ReviewsCarousel';
+import StoreShowcase from '@/components/home/StoreShowcase';
 
 export default function Home() {
   return (
@@ -46,6 +47,7 @@ export default function Home() {
           fetchUrl='/api/products?limit=10&sort=-createdAt&isActive=true&categorySlug=quilhas'
         />
         <CategoryBanners />
+        <StoreShowcase />
         <ReviewsCarousel />
       </main>
       <Footer />
