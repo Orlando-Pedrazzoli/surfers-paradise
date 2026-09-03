@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { specialNavItems, fallbackCategories } from '@/lib/config/navigation';
 import CartIcon from '@/components/layout/CartIcon';
+import WishlistIcon from '@/components/layout/WishlistIcon';
 
 interface Category {
   _id: string;
@@ -302,6 +303,7 @@ export default function Navbar() {
                   </div>
                 </Link>
               )}
+              <WishlistIcon />
               <CartIcon />
             </div>
           </div>

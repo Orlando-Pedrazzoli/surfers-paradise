@@ -33,6 +33,7 @@ import {
 import ProductCard from '@/components/product/ProductCard';
 import ProductGallery from '@/components/product/ProductGallery';
 import { useCart } from '@/lib/context/CartProvider';
+import { useWishlist } from '@/lib/context/WishlistProvider';
 import { useShippingQuotes } from '@/lib/hooks/useShippingQuotes';
 
 interface ProductData {
@@ -133,7 +134,10 @@ export default function ProductDetailPage({
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({});
-  const [isFavorite, setIsFavorite] = useState(false);
+  // v2: ligado ao WishlistProvider (o useState local era fake).
+  // product carrega async — enquanto null, coração fica no estado vazio.
+  const { isInWishlist, toggleWishlist } = useWishlist();
+  const isFavorite = product ? isInWishlist(product._id) : false;
   const [cepFrete, setCepFrete] = useState('');
 
   // ═══ SCROLL TOP: sempre que a página de detalhe abre ou troca de produto
@@ -649,7 +653,7 @@ export default function ProductDetailPage({
                 Lista de desejos
               </p>
               <button
-                onClick={() => setIsFavorite(!isFavorite)}
+                onClick={() => toggleWishlist(product._id, product.name)}
                 className={`flex items-center gap-2 text-sm border rounded-md px-4 py-2 transition-colors ${isFavorite ? 'border-[#FF6600] text-[#FF6600]' : 'border-gray-300 text-gray-600 hover:border-[#FF6600] hover:text-[#FF6600]'}`}
               >
                 <Heart

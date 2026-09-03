@@ -15,6 +15,7 @@ import {
   calculatePixPrice,
 } from '@/lib/utils/installments';
 import { useCart } from '@/lib/context/CartProvider';
+import { useWishlist } from '@/lib/context/WishlistProvider';
 
 interface ProductCardProps {
   product: {
@@ -65,8 +66,10 @@ export default function ProductCard({
   expanded = false,
 }: ProductCardProps) {
   const { addToCart, openCart } = useCart();
+  // v2: coração ligado ao WishlistProvider (o useState local era fake —
+  // não persistia nem refletia em outros componentes)
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const [currentImage, setCurrentImage] = useState(0);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [familySiblings, setFamilySiblings] = useState<FamilySibling[]>([]);
   const [activeVariant, setActiveVariant] = useState<FamilySibling | null>(
     null,
@@ -159,10 +162,11 @@ export default function ProductCard({
     e.stopPropagation();
     setCurrentImage(prev => (prev + 1) % images.length);
   };
+  const isFavorite = isInWishlist(product._id);
   const toggleFavorite = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsFavorite(prev => !prev);
+    toggleWishlist(product._id, product.name);
   };
 
   const handleQuickAdd = (e: React.MouseEvent) => {
