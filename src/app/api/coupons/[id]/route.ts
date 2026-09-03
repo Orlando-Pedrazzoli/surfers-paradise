@@ -9,7 +9,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/db/connect';
 import Coupon from '@/lib/models/Coupon';
+// Registro dos schemas referenciados pelos .populate() abaixo. Em serverless
+// (Vercel) cada rota é um bundle isolado: sem estes imports, o Mongoose
+// lança "Schema hasn't been registered for model \"Category\"". A âncora
+// _deps impede que o import seja removido como não-usado (mesma convenção
+// de products/route.ts).
+import Category from '@/lib/models/Category';
+import Brand from '@/lib/models/Brand';
 import { auth } from '@/lib/auth/config';
+
+const _deps = [Category, Brand];
+void _deps;
 
 async function isAdmin(): Promise<boolean> {
   const session = await auth();

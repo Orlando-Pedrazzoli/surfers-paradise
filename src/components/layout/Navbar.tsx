@@ -1,11 +1,24 @@
 // src/components/layout/Navbar.tsx
+// v2: CTA "Fale Conosco" — botão laranja preenchido no extremo direito da
+//     barra de categorias (desktop): cor contrastante sobre o fundo escuro,
+//     no caminho natural do olhar, visualmente distinto dos links de
+//     navegação (best practice de CTA). No mobile, entrada destacada no
+//     fim do menu lateral. Rota: /contato.
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Search, User, Menu, X, ChevronDown, ArrowRight } from 'lucide-react';
+import {
+  Search,
+  User,
+  Menu,
+  X,
+  ChevronDown,
+  ArrowRight,
+  MessageCircle,
+} from 'lucide-react';
 import { specialNavItems, fallbackCategories } from '@/lib/config/navigation';
 import CartIcon from '@/components/layout/CartIcon';
 
@@ -316,68 +329,89 @@ export default function Navbar() {
         {/* ═══ CATEGORY NAV BAR WITH MEGA-MENU ═══ */}
         <nav className='bg-gray-900 hidden md:block relative'>
           <div className='max-w-7xl mx-auto px-4'>
-            <ul className='flex items-center justify-center gap-0'>
-              {navItems.map((cat, idx) => {
-                const menuKey = cat.slug ?? cat.href;
-                const subcategories = getSubcategories(cat._id);
-                const hasSubmenu = subcategories.length > 0;
-                const isActive = activeMenu === menuKey;
-                const showDropdown = isActive && hasSubmenu;
-                // Alinhar à direita nas 2 últimas para não cortar nas bordas
-                const alignRight = idx >= navItems.length - 2;
-                const menuWidth =
-                  (cat.slug && MEGA_MENU_WIDTHS[cat.slug]) ||
-                  DEFAULT_MENU_WIDTH;
-                const promo = buildPromo(cat);
+            <div className='flex items-center'>
+              {/* Espaçador espelhando o CTA — mantém as categorias
+                  visualmente centradas em ecrãs largos */}
+              <div
+                className='hidden xl:block w-[150px] shrink-0'
+                aria-hidden='true'
+              />
+              <ul className='flex items-center justify-center gap-0 flex-1 min-w-0'>
+                {navItems.map((cat, idx) => {
+                  const menuKey = cat.slug ?? cat.href;
+                  const subcategories = getSubcategories(cat._id);
+                  const hasSubmenu = subcategories.length > 0;
+                  const isActive = activeMenu === menuKey;
+                  const showDropdown = isActive && hasSubmenu;
+                  // Alinhar à direita nas 2 últimas para não cortar nas bordas
+                  const alignRight = idx >= navItems.length - 2;
+                  const menuWidth =
+                    (cat.slug && MEGA_MENU_WIDTHS[cat.slug]) ||
+                    DEFAULT_MENU_WIDTH;
+                  const promo = buildPromo(cat);
 
-                return (
-                  <li
-                    key={cat.href}
-                    className='relative'
-                    onMouseEnter={() => hasSubmenu && handleMouseEnter(menuKey)}
-                    onMouseLeave={handleMouseLeave}
-                  >
-                    <Link
-                      href={cat.href}
-                      className={`flex items-center gap-1 px-4 py-3 text-sm font-medium transition-colors ${
-                        cat.highlight
-                          ? 'text-[#FF6600] hover:text-white'
-                          : isActive
-                            ? 'text-white bg-gray-800'
-                            : 'text-gray-300 hover:text-white hover:bg-gray-800'
-                      }`}
+                  return (
+                    <li
+                      key={cat.href}
+                      className='relative'
+                      onMouseEnter={() =>
+                        hasSubmenu && handleMouseEnter(menuKey)
+                      }
+                      onMouseLeave={handleMouseLeave}
                     >
-                      {cat.label}
-                      {hasSubmenu && (
-                        <ChevronDown
-                          size={12}
-                          className={`opacity-50 transition-transform ${isActive ? 'rotate-180' : ''}`}
-                        />
-                      )}
-                    </Link>
-
-                    {/* Dropdown ancorado ao botão */}
-                    {showDropdown && (
-                      <div
-                        className={`absolute top-full bg-white border-t-2 border-[#FF6600] shadow-2xl rounded-b-lg overflow-hidden ${
-                          alignRight ? 'right-0' : 'left-0'
+                      <Link
+                        href={cat.href}
+                        className={`flex items-center gap-1 px-4 py-3 text-sm font-medium transition-colors ${
+                          cat.highlight
+                            ? 'text-[#FF6600] hover:text-white'
+                            : isActive
+                              ? 'text-white bg-gray-800'
+                              : 'text-gray-300 hover:text-white hover:bg-gray-800'
                         }`}
-                        style={{ width: `${menuWidth}px` }}
                       >
-                        <div className='p-6'>
-                          <MegaMenuContent
-                            categorySlug={cat.slug ?? ''}
-                            subcategories={subcategories}
-                            promo={promo}
-                            onLinkClick={closeMega}
+                        {cat.label}
+                        {hasSubmenu && (
+                          <ChevronDown
+                            size={12}
+                            className={`opacity-50 transition-transform ${isActive ? 'rotate-180' : ''}`}
                           />
+                        )}
+                      </Link>
+
+                      {/* Dropdown ancorado ao botão */}
+                      {showDropdown && (
+                        <div
+                          className={`absolute top-full bg-white border-t-2 border-[#FF6600] shadow-2xl rounded-b-lg overflow-hidden ${
+                            alignRight ? 'right-0' : 'left-0'
+                          }`}
+                          style={{ width: `${menuWidth}px` }}
+                        >
+                          <div className='p-6'>
+                            <MegaMenuContent
+                              categorySlug={cat.slug ?? ''}
+                              subcategories={subcategories}
+                              promo={promo}
+                              onLinkClick={closeMega}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* v2: CTA Fale Conosco — botão contrastante, destacado dos
+                  links de navegação, no extremo direito (caminho do olhar) */}
+              <Link
+                href='/contato'
+                className='shrink-0 inline-flex items-center gap-1.5 bg-[#FF6600] text-white text-xs font-bold uppercase tracking-wide px-3.5 py-2 my-1 rounded-md hover:bg-[#e55b00] transition-colors'
+              >
+                <MessageCircle size={14} />
+                <span className='hidden lg:inline'>Fale Conosco</span>
+                <span className='lg:hidden'>Contato</span>
+              </Link>
+            </div>
           </div>
         </nav>
       </header>
@@ -470,8 +504,19 @@ export default function Navbar() {
                   </div>
                 );
               })}
+              {/* v2: CTA Fale Conosco no menu mobile */}
+              <div className='border-t border-gray-200 mt-2 pt-2'>
+                <Link
+                  href='/contato'
+                  onClick={() => setMobileMenuOpen(false)}
+                  className='flex items-center gap-2 mx-4 my-2 px-4 py-3 text-sm font-bold text-white bg-[#FF6600] rounded-md hover:bg-[#e55b00] transition-colors'
+                >
+                  <MessageCircle size={16} />
+                  Fale Conosco
+                </Link>
+              </div>
               {!isLoggedIn && (
-                <div className='border-t border-gray-200 mt-2 pt-2'>
+                <div className='border-t border-gray-200 pt-2'>
                   <Link
                     href='/login'
                     onClick={() => setMobileMenuOpen(false)}

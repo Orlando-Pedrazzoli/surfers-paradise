@@ -102,8 +102,11 @@ export async function POST(request: NextRequest) {
       ip,
     });
 
-    // Dispara o email sem bloquear a resposta (SMTP pode estar lento/off)
-    sendNewsletterWelcome(
+    // AGUARDADO (await): na Vercel, promises pendentes após a resposta são
+    // congeladas — o fire-and-forget original fazia o e-mail de boas-vindas
+    // (com o cupom!) morrer silenciosamente. sendNewsletterWelcome nunca
+    // lança; falha de e-mail não falha a inscrição (o cupom já aparece na UI).
+    await sendNewsletterWelcome(
       normalizedEmail,
       name?.trim() || '',
       code,

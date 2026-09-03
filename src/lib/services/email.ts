@@ -24,6 +24,10 @@
 // v7 (retirada na loja): pedidos com shipping.carrier === 'Retirada na Loja'
 //     mostram "Retirada na loja" + endereço da loja + instrução, e a linha
 //     de frete vira "Grátis (retirada na loja)".
+// v8: FORMULÁRIO DE CONTATO — sendContactMessage (mensagem do site para a
+//     loja, com replyTo = e-mail do cliente para responder direto) e
+//     sendContactAutoReply (confirmação ao cliente com expectativa de
+//     resposta). sendEmail ganhou replyTo opcional (retrocompatível).
 
 import { Resend } from 'resend';
 import { company } from '@/lib/config/company';
@@ -34,6 +38,8 @@ interface EmailParams {
   to: string;
   subject: string;
   html: string;
+  /** v8: respostas vão para este endereço (ex.: e-mail do cliente no contato) */
+  replyTo?: string;
 }
 
 const resend = process.env.RESEND_API_KEY
@@ -64,6 +70,7 @@ export async function sendEmail({
   to,
   subject,
   html,
+  replyTo,
 }: EmailParams): Promise<boolean> {
   try {
     if (!resend) {
@@ -78,6 +85,7 @@ export async function sendEmail({
       to,
       subject,
       html,
+      ...(replyTo ? { replyTo } : {}),
     });
 
     if (error) {
@@ -431,6 +439,99 @@ export async function sendOrderStatusUpdate(
         <div style="text-align:center;margin:24px 0 0;">
           <a href="${company.url}/meus-pedidos" style="display:inline-block;background:#FF6600;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 36px;border-radius:8px;">
             Ver meu pedido
+          </a>
+        </div>
+      </div>`),
+  });
+}
+
+// ───────────────────────── Formulário de contato ─────────────────────────
+
+export interface ContactMessageInput {
+  name: string;
+  email: string;
+  phone?: string;
+  subject?: string;
+  orderNumber?: string;
+  message: string;
+}
+
+const esc = (v: string) =>
+  v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/**
+ * Mensagem do formulário de contato → LOJA (ADMIN_EMAIL ou company.email).
+ * replyTo = e-mail do cliente: responder no próprio cliente de e-mail já
+ * abre a conversa com a pessoa certa.
+ */
+export async function sendContactMessage(
+  input: ContactMessageInput,
+): Promise<boolean> {
+  const rows = [
+    ['Nome', input.name],
+    ['E-mail', input.email],
+    input.phone ? ['WhatsApp', input.phone] : null,
+    input.subject ? ['Assunto', input.subject] : null,
+    input.orderNumber ? ['Nº do pedido', input.orderNumber] : null,
+  ]
+    .filter((r): r is [string, string] => !!r)
+    .map(
+      ([k, v]) => `
+      <tr>
+        <td style="padding:6px 12px 6px 0;color:#6b7280;font-size:13px;white-space:nowrap;vertical-align:top;"><strong style="color:#374151;">${k}</strong></td>
+        <td style="padding:6px 0;color:#374151;font-size:13px;">${esc(v)}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return sendEmail({
+    to: process.env.ADMIN_EMAIL || company.email,
+    replyTo: input.email,
+    subject: `📩 Contato pelo site${input.subject ? ` — ${input.subject}` : ''} · ${input.name}`,
+    html: shell(`
+      <div style="padding:32px 28px;">
+        <h2 style="margin:0 0 12px;color:#111827;font-size:20px;">Nova mensagem pelo site</h2>
+        <table style="border-collapse:collapse;margin:0 0 16px;">${rows}</table>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;">
+          <p style="margin:0;color:#374151;font-size:14px;line-height:1.7;white-space:pre-wrap;">${esc(input.message)}</p>
+        </div>
+        <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">
+          Responda este e-mail para falar diretamente com ${esc(input.name)} (Reply-To configurado).
+        </p>
+      </div>`),
+  });
+}
+
+/**
+ * Confirmação automática ao CLIENTE que enviou o formulário — define a
+ * expectativa de resposta e oferece o WhatsApp para urgências.
+ */
+export async function sendContactAutoReply(
+  to: string,
+  name: string,
+): Promise<boolean> {
+  const firstName = name.trim().split(' ')[0] || '';
+  return sendEmail({
+    to,
+    subject: 'Recebemos sua mensagem! - Surfers Paradise',
+    html: shell(`
+      <div style="padding:32px 28px;">
+        <h2 style="margin:0 0 12px;color:#111827;font-size:20px;">Mensagem recebida${firstName ? `, ${esc(firstName)}` : ''}! 🤙</h2>
+        <p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">
+          Sua mensagem chegou na nossa equipe. Respondemos em até
+          <strong>1 dia útil</strong>, dentro do nosso horário de atendimento
+          (${company.businessHours}).
+        </p>
+        <p style="margin:0 0 20px;color:#4b5563;font-size:15px;line-height:1.6;">
+          Precisa de resposta rápida? Chama a gente no WhatsApp:
+        </p>
+        <div style="text-align:center;">
+          <a href="https://wa.me/${company.whatsapp}" style="display:inline-block;background:#25D366;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 36px;border-radius:8px;">
+            WhatsApp ${company.phone}
           </a>
         </div>
       </div>`),
