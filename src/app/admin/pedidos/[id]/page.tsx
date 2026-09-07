@@ -2,6 +2,10 @@
 // v7: RETIRADA NA LOJA — pedidos com shipping.carrier === 'Retirada na Loja'
 //     mostram aviso operacional (não gerar etiqueta), título "Retirada na
 //     Loja Física" no card de endereço e ocultam o card de Rastreio.
+// v8: ETIQUETA MELHOR ENVIO — card <ShippingLabel /> acima do Rastreio
+//     (cotação, geração com saldo da carteira, impressão do PDF e
+//     cancelamento). onUpdated recarrega o pedido para refletir status e
+//     código de rastreio sincronizados pela rota.
 'use client';
 
 import { useState, useEffect, useCallback, use } from 'react';
@@ -24,6 +28,7 @@ import {
   Save,
   Receipt,
 } from 'lucide-react';
+import ShippingLabel from '@/components/admin/ShippingLabel';
 
 interface OrderDetail {
   _id: string;
@@ -424,6 +429,13 @@ export default function AdminOrderDetailPage({
               </div>
             </div>
           </div>
+
+          {/* ETIQUETA MELHOR ENVIO (só online, não cancelado, não retirada) */}
+          {order.channel === 'online' &&
+            order.status !== 'cancelled' &&
+            !isPickup && (
+              <ShippingLabel orderId={order._id} onUpdated={fetchOrder} />
+            )}
 
           {/* TRACKING (só online; retirada na loja não tem rastreio) */}
           {order.channel === 'online' &&

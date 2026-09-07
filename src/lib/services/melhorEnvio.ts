@@ -6,6 +6,22 @@
 // segura (≥30 = gramas): nenhum produto de surf pesa mais de 30kg nem menos
 // de 30g. Aplicada como rede de segurança em toda cotação/etiqueta.
 // v2: logging de serviços rejeitados na cotação (diagnóstico).
+// v3: fluxo completo de etiquetas no painel admin —
+//     getLabelPrintUrl (reimpressão sob demanda; a URL do /print NÃO é
+//     persistida porque expira — docs recomendam re-solicitar),
+//     checkCancellable (pré-validação antes do cancelamento),
+//     mode 'public' na impressão: o link privado exige sessão logada no
+//     Melhor Envio no navegador; o público abre o PDF direto no painel.
+// v4: REMETENTE COMPLETO no /me/cart — a doc exige dados de remetente,
+//     destinatário, pacote e serviço; envios PJ exigem company_document
+//     (CNPJ). Dados vêm das envs MELHOR_ENVIO_FROM_*; se só o CEP estiver
+//     configurado, mantém o comportamento antigo (conta do painel) com
+//     warn no log. Também envia `products` (declaração de conteúdo —
+//     obrigatória na prática com non_commercial: true).
+// v5: remetente com fonte única em config/company.ts (razão social, CNPJ,
+//     IE, telefone e endereço da loja). As envs MELHOR_ENVIO_FROM_* viram
+//     override opcional — só necessárias se o endereço de expedição um dia
+//     divergir do cadastro da empresa. Nenhuma env nova é obrigatória.
 
 const IS_SANDBOX = process.env.MELHOR_ENVIO_SANDBOX === 'true';
 
@@ -77,12 +93,19 @@ export interface LabelPackage {
   length: number;
 }
 
+export interface LabelProduct {
+  name: string;
+  quantity: number;
+  unitary_value: number; // R$ unitário
+}
+
 export interface CreateLabelParams {
   serviceId: number; // id do serviço cotado (ex: 1 = PAC, 2 = SEDEX)
   recipient: LabelRecipient;
   packageData: LabelPackage;
   insuranceValue: number;
   orderNumber: string; // nosso número de pedido (tag)
+  products?: LabelProduct[]; // declaração de conteúdo (non_commercial)
 }
 
 export interface TrackingInfo {
@@ -282,10 +305,10 @@ export async function createShippingLabel(
     body: { orders: [cartItem.id] },
   });
 
-  // 4. Obter URL de impressão (PDF)
+  // 4. Obter URL de impressão (PDF) — 'public' abre direto no navegador
   const printRes = await meRequest<{ url: string }>('/me/shipment/print', {
     method: 'POST',
-    body: { mode: 'private', orders: [cartItem.id] },
+    body: { mode: 'public', orders: [cartItem.id] },
   });
 
   return {
@@ -309,12 +332,55 @@ export async function generateLabel(
     });
     const printRes = await meRequest<{ url: string }>('/me/shipment/print', {
       method: 'POST',
-      body: { mode: 'private', orders: [shipmentId] },
+      body: { mode: 'public', orders: [shipmentId] },
     });
     return printRes.url;
   } catch (err) {
     console.error('[MelhorEnvio] generateLabel:', err);
     return null;
+  }
+}
+
+/**
+ * Reimpressão: obtém uma URL fresca do PDF de uma etiqueta JÁ GERADA.
+ * As URLs de impressão expiram — nunca persistir no banco; chamar este
+ * método sempre que o admin clicar em "Imprimir".
+ */
+export async function getLabelPrintUrl(
+  shipmentId: string,
+  mode: 'public' | 'private' = 'public',
+): Promise<string | null> {
+  try {
+    const res = await meRequest<{ url: string }>('/me/shipment/print', {
+      method: 'POST',
+      body: { mode, orders: [shipmentId] },
+    });
+    return res.url;
+  } catch (err) {
+    console.error('[MelhorEnvio] getLabelPrintUrl:', err);
+    return null;
+  }
+}
+
+/**
+ * Verifica se a etiqueta ainda pode ser cancelada (saldo recuperável).
+ * Endpoint: POST /me/shipment/cancellable.
+ */
+export async function checkCancellable(shipmentId: string): Promise<boolean> {
+  try {
+    const res = await meRequest<
+      Record<string, { cancellable?: boolean } | boolean>
+    >('/me/shipment/cancellable', {
+      method: 'POST',
+      body: { orders: [shipmentId] },
+    });
+    const info = res[shipmentId];
+    if (typeof info === 'boolean') return info;
+    return info?.cancellable !== false;
+  } catch (err) {
+    console.error('[MelhorEnvio] checkCancellable:', err);
+    // Em caso de dúvida, deixa tentar cancelar — a API rejeita se não puder
+    return true;
   }
 }
 
