@@ -22,6 +22,10 @@
 //     IE, telefone e endereço da loja). As envs MELHOR_ENVIO_FROM_* viram
 //     override opcional — só necessárias se o endereço de expedição um dia
 //     divergir do cadastro da empresa. Nenhuma env nova é obrigatória.
+// v6: SALDO DA CARTEIRA (GAP 1) — getBalance (GET /me/balance) e
+//     addBalance (POST /me/balance, gateway yapay-transparente + slug pix:
+//     retorna o link do QR Code PIX para recarga). Consumidos pelas rotas
+//     /api/shipping/balance[/add] e pelo card no admin de pedidos.
 
 const IS_SANDBOX = process.env.MELHOR_ENVIO_SANDBOX === 'true';
 
@@ -443,4 +447,64 @@ export async function cancelShipment(
     console.error('[MelhorEnvio] cancelShipment:', err);
     return false;
   }
+}
+
+// ─────────────────────────────────────────────
+// Saldo da carteira (GAP 1)
+// ─────────────────────────────────────────────
+
+export interface WalletBalance {
+  balance: number;
+  reserved: number;
+  debts: number;
+}
+
+interface MEBalanceResponse {
+  balance?: number | string;
+  reserved?: number | string;
+  debts?: number | string;
+}
+
+/** Saldo atual da carteira Melhor Envio (usado para pagar etiquetas). */
+export async function getBalance(): Promise<WalletBalance> {
+  const res = await meRequest<MEBalanceResponse>('/me/balance');
+  return {
+    balance: parseFloat(String(res.balance ?? 0)) || 0,
+    reserved: parseFloat(String(res.reserved ?? 0)) || 0,
+    debts: parseFloat(String(res.debts ?? 0)) || 0,
+  };
+}
+
+interface MEAddBalanceResponse {
+  id?: string;
+  redirect?: string;
+  url?: string;
+  payment?: { url?: string; redirect?: string };
+  digitable?: string;
+}
+
+/**
+ * Inicia uma recarga de saldo via PIX (gateway yapay-transparente).
+ * Retorna a URL do QR Code/checkout para o admin concluir o pagamento.
+ * Limites do gateway: mín R$ 5, máx R$ 10.000 (validados na rota).
+ */
+export async function addBalance(
+  value: number,
+): Promise<{ paymentUrl: string | null }> {
+  const res = await meRequest<MEAddBalanceResponse>('/me/balance', {
+    method: 'POST',
+    body: {
+      gateway: 'yapay-transparente',
+      slug: 'pix',
+      value: Number(value.toFixed(2)),
+    },
+  });
+  // O formato varia por gateway — extração defensiva do link de pagamento
+  const paymentUrl =
+    res.redirect ||
+    res.url ||
+    res.payment?.url ||
+    res.payment?.redirect ||
+    null;
+  return { paymentUrl };
 }

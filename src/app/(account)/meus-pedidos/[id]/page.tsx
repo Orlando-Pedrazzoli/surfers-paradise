@@ -1,7 +1,10 @@
 // 📄 src/app/(account)/meus-pedidos/[id]/page.tsx
-// Detalhe do pedido do cliente — consome GET /api/orders/[id] (protegido:
-// dono ou admin). Mostra itens, totais, pagamento (com PIX/boleto pendente),
-// rastreio e endereço de entrega.
+// v2 (GAP 5 — retomar pagamento): pagamento PIX pendente ganha botão
+//     "Pagar com PIX" → /pagamento/pix?orderId= (página que renderiza o QR
+//     persistido no Order). Boleto pendente já tinha o link — mantido.
+// v1: Detalhe do pedido do cliente — consome GET /api/orders/[id]
+//     (protegido: dono ou admin). Mostra itens, totais, pagamento,
+//     rastreio e endereço de entrega.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -15,6 +18,7 @@ import {
   CreditCard,
   Copy,
   Check,
+  QrCode,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 
@@ -79,6 +83,9 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   delivered: { label: 'Entregue', color: 'bg-green-100 text-green-800' },
   cancelled: { label: 'Cancelado', color: 'bg-red-100 text-red-800' },
 };
+
+// ⚠️ Manter em sincronia com PIX_EXPIRES_SECONDS em src/lib/services/checkout.ts
+const PIX_EXPIRES_MS = 3600 * 1000;
 
 const PAYMENT_LABEL: Record<string, string> = {
   credit_card: 'Cartão de crédito',
@@ -145,6 +152,9 @@ export default function OrderDetailPage() {
     color: 'bg-gray-100 text-gray-800',
   };
   const addr = order.shippingAddress;
+  const isPaymentPending = order.payment.status === 'pending';
+  const pixStillValid =
+    Date.now() - new Date(order.createdAt).getTime() < PIX_EXPIRES_MS;
 
   return (
     <div className='space-y-4'>
@@ -273,7 +283,29 @@ export default function OrderDetailPage() {
                   ? 'Pagamento não aprovado'
                   : 'Aguardando pagamento'}
           </p>
-          {order.payment.status === 'pending' &&
+
+          {/* Retomada PIX (GAP 5) — pedido ativo aguardando pagamento.
+              O QR do MP expira em 1h (checkout.ts): fora da janela,
+              nota em vez de botão para QR morto. */}
+          {isPaymentPending &&
+            order.status === 'pending' &&
+            order.payment.method === 'pix' &&
+            (pixStillValid ? (
+              <Link
+                href={`/pagamento/pix?orderId=${order._id}`}
+                className='mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#e55b00]'
+              >
+                <QrCode size={14} />
+                Pagar com PIX
+              </Link>
+            ) : (
+              <p className='mt-2 text-xs text-gray-500'>
+                Código PIX expirado — o pedido será cancelado automaticamente.
+                Faça um novo pedido para concluir a compra.
+              </p>
+            ))}
+
+          {isPaymentPending &&
             order.payment.method === 'boleto' &&
             order.payment.boletoUrl && (
               <a
@@ -284,6 +316,15 @@ export default function OrderDetailPage() {
               >
                 Abrir boleto para pagamento →
               </a>
+            )}
+
+          {isPaymentPending &&
+            order.status === 'pending' &&
+            (order.payment.method === 'boleto' ||
+              (order.payment.method === 'pix' && pixStillValid)) && (
+              <p className='mt-2 text-xs text-yellow-700'>
+                Pague logo — pedidos não pagos são cancelados automaticamente.
+              </p>
             )}
         </div>
 

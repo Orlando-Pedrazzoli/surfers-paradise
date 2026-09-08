@@ -15,10 +15,14 @@
 //     com recuperação de saldo.
 //
 // v1: primeira versão funcional (substitui o placeholder).
+// v2 (GAP 2): PDF DENTRO do painel — modal com <iframe> alimentado pelo
+//     proxy /api/shipping/label/pdf/[orderId] (blob same-origin), botões
+//     Imprimir (iframe.print com fallback), Baixar e Fechar (revoga o
+//     objectURL). Substitui os window.open de aba externa.
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import {
   Ticket,
@@ -29,6 +33,8 @@ import {
   Copy,
   ExternalLink,
   AlertTriangle,
+  Download,
+  X,
 } from 'lucide-react';
 
 interface Quote {
@@ -106,6 +112,11 @@ export default function ShippingLabel({
   const [pkg, setPkg] = useState<PackageData | null>(null);
   const [serviceId, setServiceId] = useState<number | null>(null);
 
+  // v2 (GAP 2): visualizador de PDF embutido
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
   // ── Carrega status/cotação (opcionalmente com volume editado) ──
   const load = useCallback(
     async (customPkg?: PackageData) => {
@@ -169,10 +180,10 @@ export default function ShippingLabel({
         return;
       }
       toast.success('Etiqueta gerada com sucesso!');
-      if (data.labelUrl) {
-        window.open(data.labelUrl, '_blank', 'noopener');
-      }
       await load();
+      // Abre o PDF direto no painel (a geração do ME é assíncrona — o
+      // proxy devolve 503 amigável se ainda não estiver pronto)
+      await openPdf();
       onUpdated?.();
     } catch {
       toast.error('Erro de rede ao gerar etiqueta');
@@ -181,22 +192,53 @@ export default function ShippingLabel({
     }
   };
 
-  // ── Imprimir: URL fresca a cada clique (URLs do /print expiram) ──
-  const handlePrint = async () => {
-    setWorking(true);
+  // ── v2 (GAP 2): PDF no painel — o proxy re-solicita URL fresca ao ME
+  // (as URLs do /print expiram), baixa server-side e devolve um blob
+  // same-origin para o <iframe> e a impressão. ──
+  const openPdf = async () => {
+    setPdfLoading(true);
     try {
-      const res = await fetch(`/api/shipping/label?orderId=${orderId}`);
-      const data = await res.json();
-      if (res.ok && data.printUrl) {
-        window.open(data.printUrl, '_blank', 'noopener');
-      } else {
-        toast.error(data.error || 'Não foi possível obter o PDF da etiqueta');
+      const res = await fetch(`/api/shipping/label/pdf/${orderId}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error || 'Não foi possível obter o PDF da etiqueta');
+        return;
       }
+      const blob = await res.blob();
+      setPdfUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(blob);
+      });
     } catch {
       toast.error('Erro de rede ao obter o PDF');
     } finally {
-      setWorking(false);
+      setPdfLoading(false);
     }
+  };
+
+  const closePdf = () => {
+    setPdfUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  const printPdf = () => {
+    // Impressão via iframe; alguns browsers bloqueiam print de blob em
+    // iframe — fallback: abre o próprio blob em nova aba
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (win) {
+        win.focus();
+        win.print();
+        return;
+      }
+    } catch {
+      /* fallback abaixo */
+    }
+    if (pdfUrl) window.open(pdfUrl, '_blank', 'noopener');
   };
 
   // ── Cancelar etiqueta (recupera saldo se ainda não postada) ──
@@ -332,16 +374,16 @@ export default function ShippingLabel({
         <div className='flex flex-wrap gap-2 mt-4'>
           {!isCancelled && (
             <button
-              onClick={handlePrint}
-              disabled={working}
+              onClick={openPdf}
+              disabled={working || pdfLoading}
               className='px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] disabled:opacity-50 flex items-center gap-1.5 text-sm'
             >
-              {working ? (
+              {working || pdfLoading ? (
                 <Loader2 size={14} className='animate-spin' />
               ) : (
                 <Printer size={14} />
               )}
-              Imprimir etiqueta (PDF)
+              Ver / imprimir etiqueta (PDF)
             </button>
           )}
           <button
@@ -363,6 +405,50 @@ export default function ShippingLabel({
             </button>
           )}
         </div>
+
+        {/* v2 (GAP 2): MODAL DO PDF — visualizador embutido no painel */}
+        {pdfUrl && (
+          <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+            <div className='flex h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-xl'>
+              <div className='flex items-center justify-between border-b px-4 py-3'>
+                <h3 className='font-semibold text-gray-900 flex items-center gap-2'>
+                  <Ticket size={16} className='text-gray-400' />
+                  Etiqueta Melhor Envio
+                </h3>
+                <div className='flex items-center gap-2'>
+                  <button
+                    onClick={printPdf}
+                    className='px-3 py-1.5 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] flex items-center gap-1.5 text-sm'
+                  >
+                    <Printer size={14} />
+                    Imprimir
+                  </button>
+                  <a
+                    href={pdfUrl}
+                    download={`etiqueta-${state.trackingCode || orderId}.pdf`}
+                    className='px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 flex items-center gap-1.5 text-sm'
+                  >
+                    <Download size={14} />
+                    Baixar
+                  </a>
+                  <button
+                    onClick={closePdf}
+                    className='p-1.5 text-gray-400 hover:text-gray-600'
+                    title='Fechar'
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+              <iframe
+                ref={iframeRef}
+                src={pdfUrl}
+                title='Etiqueta Melhor Envio (PDF)'
+                className='w-full flex-1 rounded-b-xl'
+              />
+            </div>
+          </div>
+        )}
       </div>
     );
   }

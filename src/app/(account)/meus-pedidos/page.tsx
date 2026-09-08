@@ -1,15 +1,26 @@
 // 📄 src/app/(account)/meus-pedidos/page.tsx
+// v3 (GAP 5 — retomar pagamento): pedidos com pagamento pendente ganham
+//     ação direta no card — "Pagar com PIX" (→ /pagamento/pix?orderId=) e
+//     "Ver Boleto" (→ detalhe, que já tem o link do boleto). O card virou
+//     <div onClick> (padrão do admin) para permitir botões internos sem
+//     <a> aninhado.
 // v2: consome GET /api/orders (a rota /api/orders/my-orders NUNCA existiu —
 //     a listagem estava quebrada). O backend agora força o escopo ao dono
 //     para clientes, então a chamada é direta.
 // v2: itemCount derivado de items (não é campo da API).
-// v2: card clicável → /meus-pedidos/[id] (detalhe).
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Package, ShoppingCart, ChevronRight } from 'lucide-react';
+import {
+  Package,
+  ShoppingCart,
+  ChevronRight,
+  QrCode,
+  FileText,
+} from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/formatCurrency';
 
 interface OrderItem {
@@ -24,8 +35,12 @@ interface Order {
   status: string;
   total: number;
   items: OrderItem[];
+  payment?: { method: string; status: string };
   createdAt: string;
 }
+
+// ⚠️ Manter em sincronia com PIX_EXPIRES_SECONDS em src/lib/services/checkout.ts
+const PIX_EXPIRES_MS = 3600 * 1000;
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-800' },
@@ -41,6 +56,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 
 export default function MeusPedidosPage() {
   const { data: session } = useSession();
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -104,38 +120,101 @@ export default function MeusPedidosPage() {
               (s, i) => s + (i.quantity || 0),
               0,
             );
+            // Retomada de pagamento: pedido ativo aguardando PIX/boleto
+            const awaitingPayment =
+              order.status === 'pending' && order.payment?.status === 'pending';
+            const pixStillValid =
+              Date.now() - new Date(order.createdAt).getTime() < PIX_EXPIRES_MS;
+            const canResumePix =
+              awaitingPayment &&
+              order.payment?.method === 'pix' &&
+              pixStillValid;
+            const pixExpired =
+              awaitingPayment &&
+              order.payment?.method === 'pix' &&
+              !pixStillValid;
+            const canResumeBoleto =
+              awaitingPayment && order.payment?.method === 'boleto';
+
             return (
-              <Link
+              <div
                 key={order._id}
-                href={`/meus-pedidos/${order._id}`}
-                className='bg-white rounded-lg shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-4 transition hover:shadow-md'
+                onClick={() => router.push(`/meus-pedidos/${order._id}`)}
+                className='bg-white rounded-lg shadow-sm p-4 cursor-pointer transition hover:shadow-md'
               >
-                <div className='flex items-center gap-3 flex-1'>
-                  <div className='w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center'>
-                    <Package size={20} className='text-gray-400' />
+                <div className='flex flex-col sm:flex-row sm:items-center gap-4'>
+                  <div className='flex items-center gap-3 flex-1'>
+                    <div className='w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center'>
+                      <Package size={20} className='text-gray-400' />
+                    </div>
+                    <div>
+                      <p className='text-sm font-medium text-gray-900'>
+                        Pedido #{order.orderNumber}
+                      </p>
+                      <p className='text-xs text-gray-500'>
+                        {new Date(order.createdAt).toLocaleDateString('pt-BR')}{' '}
+                        — {itemCount} {itemCount === 1 ? 'item' : 'itens'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className='text-sm font-medium text-gray-900'>
-                      Pedido #{order.orderNumber}
+                  <div className='flex items-center gap-4'>
+                    <span
+                      className={`text-xs font-medium px-2.5 py-1 rounded-full ${status.color}`}
+                    >
+                      {status.label}
+                    </span>
+                    <p className='text-sm font-bold text-gray-900'>
+                      {formatCurrency(order.total)}
                     </p>
-                    <p className='text-xs text-gray-500'>
-                      {new Date(order.createdAt).toLocaleDateString('pt-BR')} —{' '}
-                      {itemCount} {itemCount === 1 ? 'item' : 'itens'}
-                    </p>
+                    <ChevronRight size={16} className='text-gray-300' />
                   </div>
                 </div>
-                <div className='flex items-center gap-4'>
-                  <span
-                    className={`text-xs font-medium px-2.5 py-1 rounded-full ${status.color}`}
-                  >
-                    {status.label}
-                  </span>
-                  <p className='text-sm font-bold text-gray-900'>
-                    {formatCurrency(order.total)}
-                  </p>
-                  <ChevronRight size={16} className='text-gray-300' />
-                </div>
-              </Link>
+
+                {/* Retomada de pagamento pendente */}
+                {(canResumePix || canResumeBoleto || pixExpired) && (
+                  <div className='mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3'>
+                    {canResumePix && (
+                      <button
+                        type='button'
+                        onClick={e => {
+                          e.stopPropagation();
+                          router.push(`/pagamento/pix?orderId=${order._id}`);
+                        }}
+                        className='inline-flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#e55b00]'
+                      >
+                        <QrCode size={14} />
+                        Pagar com PIX
+                      </button>
+                    )}
+                    {canResumeBoleto && (
+                      <button
+                        type='button'
+                        onClick={e => {
+                          e.stopPropagation();
+                          router.push(`/meus-pedidos/${order._id}`);
+                        }}
+                        className='inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-gray-800'
+                      >
+                        <FileText size={14} />
+                        Ver Boleto
+                      </button>
+                    )}
+                    {pixExpired && (
+                      <p className='text-xs text-gray-500'>
+                        Código PIX expirado — o pedido será cancelado
+                        automaticamente. Faça um novo pedido para concluir a
+                        compra.
+                      </p>
+                    )}
+                    {(canResumePix || canResumeBoleto) && (
+                      <p className='text-xs text-yellow-700'>
+                        Pague logo — pedidos não pagos são cancelados
+                        automaticamente.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

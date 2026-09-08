@@ -1,3 +1,6 @@
+// 📄 src/app/admin/pedidos/page.tsx
+// v2 (GAP 1): card <MelhorEnvioBalance /> no topo — saldo da carteira com
+//     alerta abaixo de R$ 20 e recarga via PIX (operação da Adriana).
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -15,6 +18,7 @@ import {
   Filter,
   X,
 } from 'lucide-react';
+import MelhorEnvioBalance from '@/components/admin/MelhorEnvioBalance';
 
 interface OrderListItem {
   _id: string;
@@ -164,6 +168,11 @@ export default function AdminPedidosPage() {
             {pagination.total} pedido{pagination.total !== 1 && 's'} no total
           </p>
         </div>
+      </div>
+
+      {/* SALDO MELHOR ENVIO (GAP 1) */}
+      <div className='mb-4'>
+        <MelhorEnvioBalance />
       </div>
 
       {/* SEARCH */}

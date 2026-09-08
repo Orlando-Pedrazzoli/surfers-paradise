@@ -1,18 +1,24 @@
 // 📄 src/app/(auth)/login/page.tsx
+// v3 (GAP 3 — Esqueci minha senha): modo recuperação em duas fases, no
+//     padrão do Login.jsx do Elite adaptado ao NextAuth:
+//     1) e-mail → POST /api/otp { action: 'send' } (respostas neutras,
+//        cooldown de 60s com contador de reenvio);
+//     2) código + nova senha + confirmar → POST /api/auth/reset-password
+//        → auto-login via signIn('credentials') → /minha-conta.
+//     Contas Google sem senha podem DEFINIR uma por aqui (conta híbrida) —
+//     o toast do code 'use-google' agora também aponta este caminho.
 // v2 (Google OAuth):
 // - Botão "Continuar com Google" (logo oficial SVG) acima do form + divisor.
 // - signIn('google', { redirectTo }) — fluxo OAuth completo com redirect.
-// - Trata o code 'use-google' do authorize (conta criada via Google sem
-//   senha tentando logar com credentials) com mensagem orientando o botão.
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, KeyRound, ArrowLeft } from 'lucide-react';
 
 function GoogleIcon() {
   return (
@@ -37,13 +43,30 @@ function GoogleIcon() {
   );
 }
 
+type Mode = 'login' | 'forgot-email' | 'forgot-reset';
+
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Recuperação de senha
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Contador do reenvio (60s do cooldown do serviço de OTP)
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown(s => s - 1), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
 
   const handleGoogleSignIn = () => {
     setGoogleLoading(true);
@@ -66,7 +89,8 @@ export default function LoginPage() {
         // Conta criada via Google, sem senha cadastrada
         if (result.code === 'use-google') {
           toast.error(
-            'Esta conta usa login com Google. Clique em "Continuar com Google".',
+            'Esta conta usa login com Google. Clique em "Continuar com Google" — ou use "Esqueci minha senha" para definir uma.',
+            { duration: 6000 },
           );
         } else {
           toast.error('Email ou senha incorretos');
@@ -81,6 +105,117 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // Fase 1: envia o código de 6 dígitos (rota existente, resposta neutra)
+  const handleSendCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('/api/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', email }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Código enviado! Verifique seu e-mail.');
+        setResendCooldown(60);
+        setMode('forgot-reset');
+      } else {
+        toast.error(data.error || 'Não foi possível enviar o código.');
+        if (data.retryInSeconds) {
+          // Cooldown ativo (ex.: reenvio muito rápido) — segue para a fase
+          // do código, que já deve estar na caixa de entrada.
+          setResendCooldown(data.retryInSeconds);
+          setMode('forgot-reset');
+        }
+      }
+    } catch {
+      toast.error('Erro ao enviar o código.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendCooldown > 0) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', email }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Novo código enviado!');
+        setResendCooldown(60);
+      } else {
+        toast.error(data.error || 'Não foi possível reenviar.');
+        if (data.retryInSeconds) setResendCooldown(data.retryInSeconds);
+      }
+    } catch {
+      toast.error('Erro ao reenviar o código.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fase 2: código + nova senha → reset → auto-login
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      toast.error('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('As senhas não coincidem.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, newPassword }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || 'Não foi possível redefinir a senha.');
+        return;
+      }
+
+      // Auto-login com a senha recém-definida
+      const result = await signIn('credentials', {
+        email,
+        password: newPassword,
+        redirect: false,
+      });
+      if (result?.error) {
+        // Senha trocada mas o login falhou por outro motivo — volta ao form
+        toast.success('Senha redefinida! Entre com a nova senha.');
+        setMode('login');
+        setPassword('');
+      } else {
+        toast.success('Senha redefinida — você já está logado!');
+        router.push('/minha-conta');
+      }
+    } catch {
+      toast.error('Erro ao redefinir a senha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const backToLogin = () => {
+    setMode('login');
+    setOtp('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const inputClass =
+    'w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent';
 
   return (
     <div className='min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4'>
@@ -107,107 +242,308 @@ export default function LoginPage() {
         </div>
 
         <div className='bg-white rounded-2xl shadow-lg p-8'>
-          <h1 className='text-2xl font-bold text-gray-900 text-center mb-1'>
-            Entrar
-          </h1>
-          <p className='text-sm text-gray-500 text-center mb-6'>
-            Acesse sua conta para acompanhar pedidos
-          </p>
+          {/* ═══ MODO LOGIN ═══ */}
+          {mode === 'login' && (
+            <>
+              <h1 className='text-2xl font-bold text-gray-900 text-center mb-1'>
+                Entrar
+              </h1>
+              <p className='text-sm text-gray-500 text-center mb-6'>
+                Acesse sua conta para acompanhar pedidos
+              </p>
 
-          {/* ═══ GOOGLE OAUTH ═══ */}
-          <button
-            type='button'
-            onClick={handleGoogleSignIn}
-            disabled={googleLoading}
-            className='w-full flex items-center justify-center gap-3 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-          >
-            <GoogleIcon />
-            {googleLoading ? 'Redirecionando...' : 'Continuar com Google'}
-          </button>
-
-          {/* Divisor */}
-          <div className='flex items-center gap-3 my-6'>
-            <div className='flex-1 h-px bg-gray-200' />
-            <span className='text-xs text-gray-400 uppercase'>ou</span>
-            <div className='flex-1 h-px bg-gray-200' />
-          </div>
-
-          <form onSubmit={handleSubmit} className='space-y-4'>
-            <div>
-              <label
-                htmlFor='email'
-                className='block text-sm font-medium text-gray-700 mb-1'
+              {/* ═══ GOOGLE OAUTH ═══ */}
+              <button
+                type='button'
+                onClick={handleGoogleSignIn}
+                disabled={googleLoading}
+                className='w-full flex items-center justify-center gap-3 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
               >
-                Email
-              </label>
-              <div className='relative'>
-                <Mail
-                  size={16}
-                  className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
-                />
-                <input
-                  id='email'
-                  type='email'
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  required
-                  placeholder='seu@email.com'
-                  className='w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
-                />
+                <GoogleIcon />
+                {googleLoading ? 'Redirecionando...' : 'Continuar com Google'}
+              </button>
+
+              {/* Divisor */}
+              <div className='flex items-center gap-3 my-6'>
+                <div className='flex-1 h-px bg-gray-200' />
+                <span className='text-xs text-gray-400 uppercase'>ou</span>
+                <div className='flex-1 h-px bg-gray-200' />
               </div>
-            </div>
 
-            <div>
-              <label
-                htmlFor='password'
-                className='block text-sm font-medium text-gray-700 mb-1'
-              >
-                Senha
-              </label>
-              <div className='relative'>
-                <Lock
-                  size={16}
-                  className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
-                />
-                <input
-                  id='password'
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  placeholder='••••••••'
-                  className='w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
-                />
+              <form onSubmit={handleSubmit} className='space-y-4'>
+                <div>
+                  <label
+                    htmlFor='email'
+                    className='block text-sm font-medium text-gray-700 mb-1'
+                  >
+                    Email
+                  </label>
+                  <div className='relative'>
+                    <Mail
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='email'
+                      type='email'
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                      placeholder='seu@email.com'
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className='flex items-center justify-between mb-1'>
+                    <label
+                      htmlFor='password'
+                      className='block text-sm font-medium text-gray-700'
+                    >
+                      Senha
+                    </label>
+                    <button
+                      type='button'
+                      onClick={() => setMode('forgot-email')}
+                      className='text-xs text-[#FF6600] font-medium hover:underline'
+                    >
+                      Esqueci minha senha
+                    </button>
+                  </div>
+                  <div className='relative'>
+                    <Lock
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='password'
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      placeholder='••••••••'
+                      className='w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+                    />
+                    <button
+                      type='button'
+                      onClick={() => setShowPassword(!showPassword)}
+                      className='absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600'
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
                 <button
-                  type='button'
-                  onClick={() => setShowPassword(!showPassword)}
-                  className='absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600'
+                  type='submit'
+                  disabled={loading}
+                  className='w-full py-3 bg-[#FF6600] text-white font-bold text-sm rounded-lg hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {loading ? 'Entrando...' : 'Entrar'}
                 </button>
+              </form>
+
+              <div className='mt-6 text-center'>
+                <p className='text-sm text-gray-500'>
+                  Ainda não tem conta?{' '}
+                  <Link
+                    href='/cadastro'
+                    className='text-[#FF6600] font-medium hover:underline'
+                  >
+                    Cadastre-se
+                  </Link>
+                </p>
               </div>
-            </div>
+            </>
+          )}
 
-            <button
-              type='submit'
-              disabled={loading}
-              className='w-full py-3 bg-[#FF6600] text-white font-bold text-sm rounded-lg hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
-            >
-              {loading ? 'Entrando...' : 'Entrar'}
-            </button>
-          </form>
+          {/* ═══ RECUPERAÇÃO — FASE 1: E-MAIL ═══ */}
+          {mode === 'forgot-email' && (
+            <>
+              <h1 className='text-2xl font-bold text-gray-900 text-center mb-1'>
+                Recuperar senha
+              </h1>
+              <p className='text-sm text-gray-500 text-center mb-6'>
+                Enviaremos um código de 6 dígitos para o seu e-mail. Contas
+                criadas com Google também podem definir uma senha por aqui.
+              </p>
 
-          <div className='mt-6 text-center'>
-            <p className='text-sm text-gray-500'>
-              Ainda não tem conta?{' '}
-              <Link
-                href='/cadastro'
-                className='text-[#FF6600] font-medium hover:underline'
+              <form onSubmit={handleSendCode} className='space-y-4'>
+                <div>
+                  <label
+                    htmlFor='forgot-email'
+                    className='block text-sm font-medium text-gray-700 mb-1'
+                  >
+                    Email
+                  </label>
+                  <div className='relative'>
+                    <Mail
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='forgot-email'
+                      type='email'
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                      autoFocus
+                      placeholder='seu@email.com'
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type='submit'
+                  disabled={loading}
+                  className='w-full py-3 bg-[#FF6600] text-white font-bold text-sm rounded-lg hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+                >
+                  {loading ? 'Enviando...' : 'Enviar código'}
+                </button>
+              </form>
+
+              <button
+                type='button'
+                onClick={backToLogin}
+                className='mt-6 mx-auto flex items-center gap-1 text-sm text-gray-500 hover:text-[#FF6600] transition-colors'
               >
-                Cadastre-se
-              </Link>
-            </p>
-          </div>
+                <ArrowLeft size={14} /> Voltar ao login
+              </button>
+            </>
+          )}
+
+          {/* ═══ RECUPERAÇÃO — FASE 2: CÓDIGO + NOVA SENHA ═══ */}
+          {mode === 'forgot-reset' && (
+            <>
+              <h1 className='text-2xl font-bold text-gray-900 text-center mb-1'>
+                Defina a nova senha
+              </h1>
+              <p className='text-sm text-gray-500 text-center mb-6'>
+                Digite o código enviado para{' '}
+                <span className='font-medium text-gray-700'>{email}</span> e
+                escolha a nova senha.
+              </p>
+
+              <form onSubmit={handleResetPassword} className='space-y-4'>
+                <div>
+                  <label
+                    htmlFor='otp'
+                    className='block text-sm font-medium text-gray-700 mb-1'
+                  >
+                    Código de verificação
+                  </label>
+                  <div className='relative'>
+                    <KeyRound
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='otp'
+                      type='text'
+                      inputMode='numeric'
+                      autoComplete='one-time-code'
+                      maxLength={6}
+                      value={otp}
+                      onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                      required
+                      autoFocus
+                      placeholder='000000'
+                      className='w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+                    />
+                  </div>
+                  <button
+                    type='button'
+                    onClick={handleResend}
+                    disabled={loading || resendCooldown > 0}
+                    className='mt-1.5 text-xs text-[#FF6600] font-medium hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed'
+                  >
+                    {resendCooldown > 0
+                      ? `Reenviar código em ${resendCooldown}s`
+                      : 'Reenviar código'}
+                  </button>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor='new-password'
+                    className='block text-sm font-medium text-gray-700 mb-1'
+                  >
+                    Nova senha
+                  </label>
+                  <div className='relative'>
+                    <Lock
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='new-password'
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      placeholder='Mínimo 6 caracteres'
+                      className='w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+                    />
+                    <button
+                      type='button'
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className='absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600'
+                    >
+                      {showNewPassword ? (
+                        <EyeOff size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor='confirm-password'
+                    className='block text-sm font-medium text-gray-700 mb-1'
+                  >
+                    Confirmar nova senha
+                  </label>
+                  <div className='relative'>
+                    <Lock
+                      size={16}
+                      className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                    />
+                    <input
+                      id='confirm-password'
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      placeholder='Repita a nova senha'
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type='submit'
+                  disabled={loading || otp.length !== 6}
+                  className='w-full py-3 bg-[#FF6600] text-white font-bold text-sm rounded-lg hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+                >
+                  {loading ? 'Salvando...' : 'Redefinir senha e entrar'}
+                </button>
+              </form>
+
+              <button
+                type='button'
+                onClick={backToLogin}
+                className='mt-6 mx-auto flex items-center gap-1 text-sm text-gray-500 hover:text-[#FF6600] transition-colors'
+              >
+                <ArrowLeft size={14} /> Voltar ao login
+              </button>
+            </>
+          )}
         </div>
 
         <div className='text-center mt-6'>

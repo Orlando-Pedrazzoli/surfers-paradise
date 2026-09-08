@@ -1,3 +1,7 @@
+// 📄 src/app/api/auth/me/route.ts
+// v2 (GAP 4): GET agora devolve hasPassword — a Minha Conta usa para
+//     decidir entre "Alterar senha" (exige a atual) e "Definir senha"
+//     (contas Google-only, sem senha). O hash NUNCA sai da API.
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/config';
 import connectDB from '@/lib/db/connect';
@@ -22,7 +26,13 @@ export async function GET() {
         { status: 404 },
       );
 
-    return NextResponse.json({ success: true, user });
+    // hasPassword sem expor o hash (o select acima já o exclui)
+    const hasPassword = !!(await User.exists({
+      _id: session.user.id,
+      password: { $exists: true, $nin: [null, ''] },
+    }));
+
+    return NextResponse.json({ success: true, user, hasPassword });
   } catch (error) {
     console.error('GET /api/auth/me error:', error);
     return NextResponse.json(

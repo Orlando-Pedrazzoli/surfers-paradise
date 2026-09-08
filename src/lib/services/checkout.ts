@@ -127,6 +127,10 @@ const BOLETO_DUE_DAYS = 3;
 /** Expiração do PIX em segundos (mesmo valor enviado ao gateway e à UI). */
 const PIX_EXPIRES_SECONDS = 3600;
 
+// Marcador de retirada na loja — manter em sincronia com PICKUP_CARRIER
+// em src/app/(checkout)/checkout/page.tsx (GAP 8)
+const PICKUP_CARRIER = 'Retirada na Loja';
+
 type CartItem = z.infer<typeof itemSchema>;
 
 /** Item do carrinho com o preço-verdade do banco aplicado. */
@@ -293,6 +297,22 @@ export async function processCheckout(
     };
   }
   const input = parsed.data;
+
+  // GAP 8 — RETIRADA NA LOJA: coerência server-side. O front marca a
+  // retirada com shipping.carrier === 'Retirada na Loja' (PICKUP_CARRIER
+  // em (checkout)/checkout/page.tsx — manter em sincronia). O Zod
+  // nonnegative() bloqueia frete negativo, mas nada impedia um POST manual
+  // com carrier de retirada e shippingCost > 0 (ou dados de transportadora).
+  // Aqui o servidor FORÇA frete 0 e limpa os campos de envio.
+  if (input.shipping?.carrier === PICKUP_CARRIER) {
+    input.shippingCost = 0;
+    input.shipping = {
+      method: input.shipping.method || 'Retirada na Loja Física',
+      carrier: PICKUP_CARRIER,
+      estimatedDays: 0,
+      melhorEnvioId: '',
+    };
+  }
 
   if (
     method === 'credit_card' &&

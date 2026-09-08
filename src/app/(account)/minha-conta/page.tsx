@@ -1,15 +1,34 @@
+// 📄 src/app/(account)/minha-conta/page.tsx
+// v2 (GAP 4): seção SEGURANÇA — alterar senha (atual + nova + confirmar)
+//     ou, para contas Google-only (hasPassword=false no /api/auth/me),
+//     DEFINIR a primeira senha sem pedir a atual (conta híbrida, GAP 3).
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import toast from 'react-hot-toast';
-import { User, Mail, Phone, CreditCard, Save } from 'lucide-react';
+import {
+  User,
+  Mail,
+  Phone,
+  CreditCard,
+  Save,
+  Lock,
+  ShieldCheck,
+} from 'lucide-react';
 
 export default function MinhaContaPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', cpf: '', phone: '' });
+  const [hasPassword, setHasPassword] = useState(true);
+  const [pwdForm, setPwdForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [savingPwd, setSavingPwd] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -23,6 +42,7 @@ export default function MinhaContaPage() {
             cpf: data.user.cpf || '',
             phone: data.user.phone || '',
           });
+          setHasPassword(data.hasPassword !== false);
         }
       } catch {
         /* session will populate */
@@ -63,6 +83,50 @@ export default function MinhaContaPage() {
       toast.error('Erro ao atualizar');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // GAP 4 — alterar/definir senha
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwdForm.newPassword.length < 6) {
+      toast.error('A nova senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (pwdForm.newPassword !== pwdForm.confirmPassword) {
+      toast.error('As senhas não coincidem.');
+      return;
+    }
+    setSavingPwd(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: pwdForm.currentPassword,
+          newPassword: pwdForm.newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(
+          hasPassword
+            ? 'Senha alterada com sucesso!'
+            : 'Senha definida! Agora você também pode entrar com e-mail e senha.',
+        );
+        setHasPassword(true);
+        setPwdForm({
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+        });
+      } else {
+        toast.error(data.error || 'Erro ao atualizar a senha');
+      }
+    } catch {
+      toast.error('Erro ao atualizar a senha');
+    } finally {
+      setSavingPwd(false);
     }
   };
 
@@ -173,6 +237,119 @@ export default function MinhaContaPage() {
           >
             <Save size={16} />
             {saving ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+        </form>
+      </div>
+
+      {/* ═══ SEGURANÇA (GAP 4) ═══ */}
+      <div className='bg-white rounded-lg shadow-sm p-6 mt-6'>
+        <h2 className='text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2'>
+          <ShieldCheck size={18} className='text-gray-400' />
+          Segurança
+        </h2>
+        <p className='text-sm text-gray-500 mb-4'>
+          {hasPassword
+            ? 'Altere a senha de acesso da sua conta.'
+            : 'Sua conta usa login com Google. Defina uma senha para também poder entrar com e-mail e senha.'}
+        </p>
+
+        <form onSubmit={handlePasswordSubmit} className='space-y-4 max-w-md'>
+          {hasPassword && (
+            <div>
+              <label
+                htmlFor='current-password'
+                className='block text-sm font-medium text-gray-700 mb-1'
+              >
+                Senha atual
+              </label>
+              <div className='relative'>
+                <Lock
+                  size={16}
+                  className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+                />
+                <input
+                  id='current-password'
+                  type='password'
+                  value={pwdForm.currentPassword}
+                  onChange={e =>
+                    setPwdForm({ ...pwdForm, currentPassword: e.target.value })
+                  }
+                  required
+                  autoComplete='current-password'
+                  placeholder='••••••••'
+                  className='w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor='new-password'
+              className='block text-sm font-medium text-gray-700 mb-1'
+            >
+              Nova senha
+            </label>
+            <div className='relative'>
+              <Lock
+                size={16}
+                className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+              />
+              <input
+                id='new-password'
+                type='password'
+                value={pwdForm.newPassword}
+                onChange={e =>
+                  setPwdForm({ ...pwdForm, newPassword: e.target.value })
+                }
+                required
+                minLength={6}
+                autoComplete='new-password'
+                placeholder='Mínimo 6 caracteres'
+                className='w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor='confirm-new-password'
+              className='block text-sm font-medium text-gray-700 mb-1'
+            >
+              Confirmar nova senha
+            </label>
+            <div className='relative'>
+              <Lock
+                size={16}
+                className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-400'
+              />
+              <input
+                id='confirm-new-password'
+                type='password'
+                value={pwdForm.confirmPassword}
+                onChange={e =>
+                  setPwdForm({ ...pwdForm, confirmPassword: e.target.value })
+                }
+                required
+                minLength={6}
+                autoComplete='new-password'
+                placeholder='Repita a nova senha'
+                className='w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-transparent'
+              />
+            </div>
+          </div>
+
+          <button
+            type='submit'
+            disabled={savingPwd}
+            className='px-6 py-2.5 bg-[#FF6600] text-white font-medium text-sm rounded-lg hover:bg-[#e55b00] disabled:opacity-50 transition-colors inline-flex items-center gap-2'
+          >
+            <Save size={16} />
+            {savingPwd
+              ? 'Salvando...'
+              : hasPassword
+                ? 'Alterar senha'
+                : 'Definir senha'}
           </button>
         </form>
       </div>
