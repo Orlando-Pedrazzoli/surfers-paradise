@@ -12,9 +12,12 @@ export default function cloudinaryLoader({
   width,
   quality,
 }: ImageLoaderProps): string {
-  // Imagens locais (/images/logo-navbar.png, etc.) e outros hosts: sem alteração
+  // Imagens locais (/images/logo-navbar.png, etc.) e outros hosts: servidas
+  // tal como estão. A query ?w= é ignorada pelo servidor estático; existe só
+  // para satisfazer a verificação do next/image em dev, que exige que o URL
+  // devolvido inclua a largura (evita o aviso "does not implement width").
   if (!src.includes('res.cloudinary.com') || !src.includes(CLOUDINARY_UPLOAD)) {
-    return src;
+    return `${src}${src.includes('?') ? '&' : '?'}w=${width}`;
   }
 
   const [base, rest] = src.split(CLOUDINARY_UPLOAD);
