@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
     ];
   },
   images: {
+    // Loader custom: bypass do otimizador da Vercel (quota mensal → 402);
+    // a otimização (f_auto, q_auto, w_) é feita pelo Cloudinary no URL.
+    loader: 'custom',
+    loaderFile: './src/lib/cloudinaryLoader.ts',
     remotePatterns: [
       {
         protocol: 'https',

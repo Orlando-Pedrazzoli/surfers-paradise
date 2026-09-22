@@ -655,17 +655,37 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('folder', 'surfers-paradise/products');
+      // Vercel rejeita bodies acima de 4,5 MB antes de chegar à rota (413 sem JSON)
+      if (file.size > 4.5 * 1024 * 1024) {
+        toast.error(
+          `${file.name} tem ${(file.size / 1024 / 1024).toFixed(1)} MB — o limite é 4,5 MB`,
+        );
+        continue;
+      }
       try {
         const res = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
         });
-        const data = await res.json();
-        if (data.success) newImages.push(data.url);
+        let data: { success?: boolean; url?: string; error?: string } = {};
+        try {
+          data = await res.json();
+        } catch {
+          // resposta não-JSON (ex.: 413 da Vercel)
+        }
+        if (res.ok && data.success && data.url) {
+          newImages.push(data.url);
+        } else {
+          toast.error(
+            `Erro ao enviar ${file.name}: ${data.error || `HTTP ${res.status}`}`,
+          );
+        }
       } catch {
         toast.error(`Erro ao enviar ${file.name}`);
       }
     }
+    // permite escolher o mesmo ficheiro outra vez após um erro
+    e.target.value = '';
     setForm(prev => ({
       ...prev,
       images: [...prev.images, ...newImages],
