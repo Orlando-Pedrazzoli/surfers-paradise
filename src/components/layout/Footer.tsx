@@ -103,6 +103,14 @@ export default function Footer() {
               </li>
               <li>
                 <Link
+                  href='/condicoes'
+                  className='text-sm hover:text-[#FF6600] transition-colors'
+                >
+                  Regras de Pagamento e Descontos
+                </Link>
+              </li>
+              <li>
+                <Link
                   href='/trocas-devolucoes'
                   className='text-sm hover:text-[#FF6600] transition-colors'
                 >

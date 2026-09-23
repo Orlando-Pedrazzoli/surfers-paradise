@@ -3,21 +3,37 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+// Cada mensagem é um link para a secção correspondente da página de condições
 const messages = [
-  'Descontos de até 10% no PIX ou Boleto*',
-  'Frete Grátis para todo Brasil*',
-  'Parcele em até 10x sem juros no cartão de crédito*',
+  {
+    text: 'Frete grátis todo Brasil acima de R$ 399',
+    href: '/condicoes#frete-gratis',
+  },
+  {
+    text: '10% OFF pagamentos no Pix à vista',
+    href: '/condicoes#desconto-pix',
+  },
+  {
+    text: 'Parcele em até 10x sem juros no cartão de crédito',
+    href: '/condicoes#parcelamento',
+  },
 ];
+
+const INTERVAL_MS = 2000;
 
 export default function AnnouncementBar() {
   const [current, setCurrent] = useState(0);
+  const [paused, setPaused] = useState(false);
 
+  // Carousel automático; pausa enquanto o rato está sobre a mensagem
+  // para o user conseguir clicar sem ela mudar debaixo do cursor.
   useEffect(() => {
+    if (paused) return;
     const interval = setInterval(() => {
       setCurrent(prev => (prev + 1) % messages.length);
-    }, 4000);
+    }, INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [paused]);
 
   return (
     <div className='bg-[#FF6600] text-white py-2 px-4 text-xs sm:text-sm font-medium'>
@@ -25,17 +41,28 @@ export default function AnnouncementBar() {
         {/* Spacer for centering on desktop */}
         <div className='hidden md:block w-16' />
 
-        {/* Messages */}
-        <div className='flex-1 text-center'>
-          <div className='hidden md:flex items-center justify-center gap-2'>
-            {messages.map((msg, i) => (
-              <span key={i} className='flex items-center'>
-                {i > 0 && <span className='mx-3 opacity-60'>|</span>}
-                {msg}
-              </span>
-            ))}
-          </div>
-          <p className='md:hidden'>{messages[current]}</p>
+        {/* Messages carousel */}
+        <div
+          className='flex-1 relative h-5 overflow-hidden'
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          aria-live='polite'
+        >
+          {messages.map((msg, i) => (
+            <Link
+              key={msg.href}
+              href={msg.href}
+              tabIndex={i === current ? 0 : -1}
+              aria-hidden={i !== current}
+              className={`absolute inset-0 flex items-center justify-center text-center hover:underline underline-offset-2 transition-all duration-500 ease-out ${
+                i === current
+                  ? 'opacity-100 translate-y-0'
+                  : 'opacity-0 translate-y-2 pointer-events-none'
+              }`}
+            >
+              {msg.text}
+            </Link>
+          ))}
         </div>
 
         {/* Social Icons */}

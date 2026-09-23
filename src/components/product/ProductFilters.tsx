@@ -16,6 +16,8 @@ interface Brand {
   _id: string;
   name: string;
   slug: string;
+  /** Nº de produtos da marca na categoria atual (só vem do facets-shop) */
+  count?: number;
 }
 
 interface ProductFiltersProps {
@@ -41,27 +43,59 @@ export default function ProductFilters({
 }: ProductFiltersProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [brandsLoading, setBrandsLoading] = useState(true);
   const [showCategories, setShowCategories] = useState(true);
   const [showBrands, setShowBrands] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
   const [localMinPrice, setLocalMinPrice] = useState(minPrice || '');
   const [localMaxPrice, setLocalMaxPrice] = useState(maxPrice || '');
 
+  // ═══ Categorias: sempre o catálogo completo (árvore da sidebar) ═══
   useEffect(() => {
     const fetchCatalog = async () => {
       try {
         const res = await fetch('/api/catalog');
         const data = await res.json();
-        if (data.success) {
-          setCategories(data.categories);
-          setBrands(data.brands);
-        }
+        if (data.success) setCategories(data.categories);
       } catch {
-        console.error('Erro ao carregar filtros');
+        console.error('Erro ao carregar categorias');
       }
     };
     fetchCatalog();
   }, []);
+
+  // ═══ Marcas: contextuais à categoria atual ═══
+  // Com categorySlug  → só as marcas com produtos nessa categoria
+  //                     (ou nas subcategorias dela), com count real.
+  // Sem categorySlug  → todas as marcas ativas (ex.: página /produtos).
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchBrands = async () => {
+      setBrandsLoading(true);
+      try {
+        const url = categorySlug
+          ? `/api/products/facets-shop?categorySlug=${encodeURIComponent(categorySlug)}`
+          : '/api/catalog';
+        const res = await fetch(url);
+        const data = await res.json();
+        if (cancelled) return;
+        setBrands(
+          data.success ? (categorySlug ? data.facets.brands : data.brands) : [],
+        );
+      } catch {
+        if (!cancelled) setBrands([]);
+        console.error('Erro ao carregar marcas');
+      } finally {
+        if (!cancelled) setBrandsLoading(false);
+      }
+    };
+
+    fetchBrands();
+    return () => {
+      cancelled = true;
+    };
+  }, [categorySlug]);
 
   useEffect(() => {
     setLocalMinPrice(minPrice || '');
@@ -69,6 +103,12 @@ export default function ProductFilters({
   }, [minPrice, maxPrice]);
 
   const hasActiveFilters = selectedBrand || minPrice || maxPrice;
+
+  // A secção só aparece se houver escolha real (2+ marcas). Com uma única
+  // marca o filtro não filtra nada — exceto se já estiver selecionada,
+  // para o user conseguir desmarcá-la.
+  const showBrandsSection =
+    brandsLoading || brands.length > 1 || Boolean(selectedBrand);
 
   // Find current category context
   const currentCat = categories.find(c => c.slug === categorySlug);
@@ -162,36 +202,59 @@ export default function ProductFilters({
       )}
 
       {/* Brands */}
-      <div className='border-b border-gray-200 pb-4 mb-4'>
-        <button
-          onClick={() => setShowBrands(!showBrands)}
-          className='flex items-center justify-between w-full text-sm font-bold text-gray-900 uppercase mb-3'
-        >
-          Marcas
-          {showBrands ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {showBrands && (
-          <div className='space-y-1 max-h-48 overflow-y-auto'>
-            {brands.map(brand => (
-              <button
-                key={brand._id}
-                onClick={() =>
-                  onFilterChange({
-                    brand: selectedBrand === brand._id ? undefined : brand._id,
-                  })
-                }
-                className={`block w-full text-left text-sm py-1 px-2 rounded transition-colors ${
-                  selectedBrand === brand._id
-                    ? 'text-[#FF6600] font-semibold bg-orange-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                {brand.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {showBrandsSection && (
+        <div className='border-b border-gray-200 pb-4 mb-4'>
+          <button
+            onClick={() => setShowBrands(!showBrands)}
+            className='flex items-center justify-between w-full text-sm font-bold text-gray-900 uppercase mb-3'
+          >
+            Marcas
+            {showBrands ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {showBrands && (
+            <div className='space-y-1 max-h-48 overflow-y-auto'>
+              {brandsLoading ? (
+                <div className='space-y-2 py-1 px-2'>
+                  {[0, 1, 2].map(i => (
+                    <div
+                      key={i}
+                      className='h-4 bg-gray-100 rounded animate-pulse'
+                    />
+                  ))}
+                </div>
+              ) : brands.length === 0 ? (
+                <p className='text-sm text-gray-400 px-2 py-1'>
+                  Nenhuma marca nesta categoria
+                </p>
+              ) : (
+                brands.map(brand => (
+                  <button
+                    key={brand._id}
+                    onClick={() =>
+                      onFilterChange({
+                        brand:
+                          selectedBrand === brand._id ? undefined : brand._id,
+                      })
+                    }
+                    className={`flex items-center justify-between gap-2 w-full text-left text-sm py-1 px-2 rounded transition-colors ${
+                      selectedBrand === brand._id
+                        ? 'text-[#FF6600] font-semibold bg-orange-50'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className='truncate'>{brand.name}</span>
+                    {typeof brand.count === 'number' && (
+                      <span className='text-xs text-gray-400 flex-shrink-0'>
+                        ({brand.count})
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Price Range */}
       <div className='pb-4'>

@@ -67,6 +67,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.4,
     },
     {
+      url: `${SITE_URL}/condicoes`,
+      changeFrequency: 'yearly',
+      priority: 0.4,
+    },
+    {
       url: `${SITE_URL}/prazos-entrega`,
       changeFrequency: 'yearly',
       priority: 0.4,
