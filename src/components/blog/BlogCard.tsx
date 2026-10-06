@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import Image from 'next/image';
 
 interface BlogCardProps {

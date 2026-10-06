@@ -6,7 +6,7 @@
 'use client';
 
 import { Suspense } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, Package, UserPlus } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';

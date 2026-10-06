@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import {
   ArrowLeft,
   Package,

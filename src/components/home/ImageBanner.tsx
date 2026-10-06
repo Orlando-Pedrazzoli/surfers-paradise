@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 
 interface ImageBannerProps {
   /** Caminho da imagem em /public (default: banner de wetsuits) */

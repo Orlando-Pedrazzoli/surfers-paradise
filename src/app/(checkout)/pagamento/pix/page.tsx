@@ -16,7 +16,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { Loader2, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import PixPayment from '@/components/checkout/PixPayment';
 import { formatCurrency } from '@/lib/utils/formatCurrency';

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Banner {

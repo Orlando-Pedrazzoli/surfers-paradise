@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { Truck, Clock, Package, MapPin, Mail } from 'lucide-react';
 
 export const metadata: Metadata = {

@@ -7,7 +7,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import toast from 'react-hot-toast';
 import { MailCheck, CheckCircle2, Loader2 } from 'lucide-react';
 

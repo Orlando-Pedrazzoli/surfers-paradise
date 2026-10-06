@@ -7,7 +7,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { useSession } from 'next-auth/react';
 import toast from 'react-hot-toast';
 import { Star, BadgeCheck, Loader2 } from 'lucide-react';

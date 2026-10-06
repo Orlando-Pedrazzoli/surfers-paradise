@@ -27,7 +27,20 @@ export async function GET(
       .sort({ isMainVariant: -1, createdAt: 1 })
       .lean();
 
-    return NextResponse.json({ success: true, products });
+    // 🔧 06/10/2026: dados públicos e iguais para todos → cache no CDN.
+    // Cada ProductCard chama este endpoint; sem cache eram ~1 700 invocações
+    // de função por dia só aqui. Com s-maxage o CDN responde sem acordar a
+    // função (o stock das variantes pode demorar até 2 min a refletir; o
+    // checkout valida o stock no servidor).
+    return NextResponse.json(
+      { success: true, products },
+      {
+        headers: {
+          'Cache-Control':
+            'public, max-age=60, s-maxage=120, stale-while-revalidate=600',
+        },
+      },
+    );
   } catch (error) {
     console.error('GET family products error:', error);
     return NextResponse.json(

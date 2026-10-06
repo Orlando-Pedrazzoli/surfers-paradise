@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import { User, Mail, Lock, Eye, EyeOff, Phone, CreditCard } from 'lucide-react';

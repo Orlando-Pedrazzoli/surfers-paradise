@@ -5,7 +5,7 @@
 // coração vazio sem número é o estado neutro convencional.
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { Heart } from 'lucide-react';
 import { useWishlist } from '@/lib/context/WishlistProvider';
 

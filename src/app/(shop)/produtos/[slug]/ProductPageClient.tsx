@@ -12,7 +12,7 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { useRouter } from 'next/navigation';
 import {
   Star,

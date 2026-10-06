@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, use } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { SlidersHorizontal, X } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import ProductGrid from '@/components/product/ProductGrid';
 import ProductFilters from '@/components/product/ProductFilters';
 import QuilhasFilters from '@/components/product/QuilhasFilters';

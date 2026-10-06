@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import toast from 'react-hot-toast';
 import { Lock, Mail, Eye, EyeOff } from 'lucide-react';
 

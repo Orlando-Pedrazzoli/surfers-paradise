@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { X, Minus, Plus, Trash2, ShoppingCart } from 'lucide-react';
 import { useCart } from '@/lib/context/CartProvider';
 import { formatCurrency } from '@/lib/utils/formatCurrency';

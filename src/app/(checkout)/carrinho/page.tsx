@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { Trash2, Minus, Plus, ShoppingCart, Truck, Tag, X } from 'lucide-react';
 import { useCart } from '@/lib/context/CartProvider';
 import { formatCurrency } from '@/lib/utils/formatCurrency';

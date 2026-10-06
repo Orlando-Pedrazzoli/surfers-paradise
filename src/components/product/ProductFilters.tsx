@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 
 interface Category {
   _id: string;

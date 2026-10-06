@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 
 export const metadata: Metadata = {
   title: 'Termos de Uso',

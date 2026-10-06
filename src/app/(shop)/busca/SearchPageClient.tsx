@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import ProductGrid from '@/components/product/ProductGrid';
 import ProductSort from '@/components/product/ProductSort';
 

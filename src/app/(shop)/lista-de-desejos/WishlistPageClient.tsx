@@ -7,7 +7,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/ui/HoverPrefetchLink';
 import { useSession } from 'next-auth/react';
 import { Heart, ArrowRight, LogIn } from 'lucide-react';
 import { useWishlist } from '@/lib/context/WishlistProvider';
