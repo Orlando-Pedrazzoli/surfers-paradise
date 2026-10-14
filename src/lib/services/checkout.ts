@@ -1,7 +1,24 @@
 // 📄 src/lib/services/checkout.ts
 // Orquestra o checkout online: valida → REVALIDA PREÇOS NO BANCO → cupom
-// server-side → totais → antifraude → cria pedido pending → cria a order no
-// MERCADO PAGO (API de Orders) → atualiza status.
+// server-side → totais → antifraude → cria (ou REAPROVEITA) pedido pending →
+// cria a order no MERCADO PAGO (API de Orders) → atualiza status.
+//
+// v9 (revisão de aprovação de cartão):
+// - MOTIVO DA RECUSA persistido no pedido (payment.failureCode/
+//   failureMessage/failedAt) nos DOIS caminhos (resultado failed e
+//   exceção) e devolvido ao cliente como mensagem amigável.
+// - RETRY REAPROVEITA O PEDIDO: nova tentativa do mesmo comprador com o
+//   mesmo carrinho/total dentro de 2h reutiliza o Order falhado em vez de
+//   criar outro — o admin deixa de ver N pedidos por 1 cliente, e o
+//   velocity check do antifraude deixa de punir o próprio retry.
+//   payment.attempts conta as tentativas; a chave de idempotência do MP
+//   inclui a tentativa.
+// - Payload do MP enriquecido: items, description, payer.phone,
+//   statement_descriptor (antifraude + reconhecimento na fatura).
+// - DÉBITO: cardType 'debit_card' vindo do front (BIN lookup) é enviado ao
+//   MP como tal, com parcela única; o pedido guarda method 'debit_card'.
+// - Bandeira/últimos 4 dígitos e se o device ID foi enviado ficam no
+//   pedido para diagnóstico.
 //
 // v8 (cupons restritos por categoria/marca):
 // - resolveCoupon local APOSENTADO — a validação/cálculo do cupom agora é
@@ -39,6 +56,8 @@
 // processOrderStock (idempotente — o webhook cobre falhas desta chamada).
 
 import { z } from 'zod';
+import type { HydratedDocument } from 'mongoose';
+import type { IOrder } from '@/lib/types/order';
 import connectDB from '@/lib/db/connect';
 import Order from '@/lib/models/Order';
 import Coupon from '@/lib/models/Coupon';
@@ -48,8 +67,11 @@ import {
   createOrder as createMpOrder,
   isPaidStatus,
   isFailedStatus,
+  describeFailure,
+  toStatementDescriptor,
   MercadoPagoError,
   type MpAddressInput,
+  type MpFailure,
 } from '@/lib/services/mercadopago';
 import { resolveCouponForItems } from '@/lib/services/coupon';
 import { checkFraud } from '@/lib/services/fraudProtection';
@@ -106,7 +128,11 @@ const baseSchema = z.object({
   // o desconto é recalculado server-side via resolveCouponForItems().
   couponDiscount: z.number().nonnegative().optional().default(0),
   cardToken: z.string().optional(),
-  paymentMethodId: z.string().optional(), // bandeira MP (visa/master/...)
+  paymentMethodId: z.string().optional(), // bandeira MP (visa/master/debvisa/...)
+  // 'credit_card' | 'debit_card' — resolvido pelo BIN no front.
+  cardType: z.enum(['credit_card', 'debit_card']).optional(),
+  cardBrand: z.string().max(40).optional(), // nome de exibição (Visa, Elo…)
+  cardLast4: z.string().regex(/^\d{4}$/).optional(),
   installments: z.number().int().positive().optional(),
   ip: z.string().optional(),
   // Device fingerprint do MP (window.MP_DEVICE_SESSION_ID via security.js).
@@ -130,6 +156,30 @@ const PIX_EXPIRES_SECONDS = 3600;
 // Marcador de retirada na loja — manter em sincronia com PICKUP_CARRIER
 // em src/app/(checkout)/checkout/page.tsx (GAP 8)
 const PICKUP_CARRIER = 'Retirada na Loja';
+
+/** Janela em que uma nova tentativa reaproveita o pedido falhado. */
+const RETRY_REUSE_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/** Descritor que aparece na fatura do cartão (≤ 22 chars). */
+const STATEMENT_DESCRIPTOR = toStatementDescriptor(company.name);
+
+/** URL absoluta da imagem do item (o MP ignora caminhos relativos). */
+function absoluteImageUrl(image?: string): string | undefined {
+  if (!image) return undefined;
+  if (/^https?:\/\//i.test(image)) return image;
+  if (image.startsWith('/')) return `${company.url}${image}`;
+  return undefined;
+}
+
+/** Grava o motivo da recusa no pedido (não salva — o chamador salva). */
+type OrderDoc = HydratedDocument<IOrder>;
+
+function applyFailure(order: OrderDoc, failure: MpFailure) {
+  order.payment.status = 'failed';
+  order.payment.failureCode = failure.code;
+  order.payment.failureMessage = failure.message;
+  order.payment.failedAt = new Date();
+}
 
 type CartItem = z.infer<typeof itemSchema>;
 
@@ -380,9 +430,12 @@ export async function processCheckout(
     return { status: 400, body: { error: 'Total inválido.' } };
   }
 
-  // Parcelamento (só cartão): respeita máx. e parcela mínima
+  // Tipo do cartão (débito não parcela e é registado como 'debit_card').
+  const cardType = method === 'credit_card' ? input.cardType || 'credit_card' : undefined;
+
+  // Parcelamento (só crédito): respeita máx. e parcela mínima
   let installments = 1;
-  if (method === 'credit_card') {
+  if (method === 'credit_card' && cardType === 'credit_card') {
     const { maxInstallments, minInstallmentValue } = company.payment;
     installments = Math.max(
       1,
@@ -409,41 +462,123 @@ export async function processCheckout(
     };
   }
 
-  // 3. Cria o pedido pendente (com os preços do BANCO no snapshot)
-  const order = await Order.create({
-    channel: 'online',
-    user: input.userId || null,
-    guestEmail: input.userId ? '' : input.customer.email,
-    customerSnapshot: {
-      name: input.customer.name,
-      cpf: input.customer.document,
-      phone: input.customer.phone,
-      email: input.customer.email,
-    },
-    items: items.map(i => ({
-      product: i.productId || undefined,
-      sku: i.sku,
-      name: i.name,
-      slug: i.slug,
-      image: i.image,
-      variant: i.variant,
-      quantity: i.quantity,
-      price: i.unitPrice,
-    })),
-    subtotal: round2(subtotal),
-    shippingCost: input.shippingCost,
-    discount: totalDiscount,
-    coupon: couponCode,
-    total,
-    shippingAddress: {
-      ...input.shippingAddress,
-      name: input.shippingAddress.name || input.customer.name,
-    },
-    payment: { method, status: 'pending', installments },
-    shipping: input.shipping,
-    status: 'pending',
-    ip: input.ip || '',
-  });
+  // 3. Cria o pedido pendente — ou REAPROVEITA o pedido falhado de uma
+  // tentativa anterior do mesmo comprador (mesmo e-mail, mesmo total, cartão,
+  // dentro da janela). Evita N pedidos "failed" por cliente no admin e evita
+  // que o velocity check do antifraude puna o próprio retry.
+  let order: OrderDoc | null = null;
+  let attempt = 1;
+
+  if (method === 'credit_card') {
+    const since = new Date(Date.now() - RETRY_REUSE_WINDOW_MS);
+    const reusable = await Order.findOne({
+      channel: 'online',
+      createdAt: { $gte: since },
+      'payment.status': 'failed',
+      'payment.method': { $in: ['credit_card', 'debit_card'] },
+      stockProcessed: { $ne: true },
+      status: 'pending',
+      total,
+      $or: [
+        { 'customerSnapshot.email': input.customer.email },
+        { guestEmail: input.customer.email },
+      ],
+    }).sort({ createdAt: -1 });
+
+    if (reusable) {
+      order = reusable;
+      attempt = (order.payment.attempts || 1) + 1;
+      // Snapshot atualizado (o cliente pode ter corrigido endereço/telefone)
+      order.customerSnapshot = {
+        name: input.customer.name,
+        cpf: input.customer.document,
+        phone: input.customer.phone,
+        email: input.customer.email,
+      };
+      order.set(
+        'items',
+        items.map(i => ({
+          product: i.productId || undefined,
+          sku: i.sku,
+          name: i.name,
+          slug: i.slug,
+          image: i.image,
+          variant: i.variant,
+          quantity: i.quantity,
+          price: i.unitPrice,
+        })),
+      );
+      order.subtotal = round2(subtotal);
+      order.shippingCost = input.shippingCost;
+      order.discount = totalDiscount;
+      order.coupon = couponCode;
+      order.shippingAddress = {
+        ...input.shippingAddress,
+        name: input.shippingAddress.name || input.customer.name,
+      };
+      order.shipping = input.shipping;
+      order.ip = input.ip || '';
+      order.payment.method = cardType || 'credit_card';
+      order.payment.status = 'pending';
+      order.payment.installments = installments;
+      order.payment.attempts = attempt;
+      order.payment.mpOrderId = '';
+      order.payment.mpPaymentId = '';
+      await order.save();
+    }
+  }
+
+  if (!order) {
+    order = await Order.create({
+      channel: 'online',
+      user: input.userId || null,
+      guestEmail: input.userId ? '' : input.customer.email,
+      customerSnapshot: {
+        name: input.customer.name,
+        cpf: input.customer.document,
+        phone: input.customer.phone,
+        email: input.customer.email,
+      },
+      items: items.map(i => ({
+        product: i.productId || undefined,
+        sku: i.sku,
+        name: i.name,
+        slug: i.slug,
+        image: i.image,
+        variant: i.variant,
+        quantity: i.quantity,
+        price: i.unitPrice,
+      })),
+      subtotal: round2(subtotal),
+      shippingCost: input.shippingCost,
+      discount: totalDiscount,
+      coupon: couponCode,
+      total,
+      shippingAddress: {
+        ...input.shippingAddress,
+        name: input.shippingAddress.name || input.customer.name,
+      },
+      payment: {
+        method: method === 'credit_card' ? cardType || 'credit_card' : method,
+        status: 'pending',
+        installments,
+        attempts: 1,
+      },
+      shipping: input.shipping,
+      status: 'pending',
+      ip: input.ip || '',
+    });
+  }
+
+  // Dados de diagnóstico do cartão (não sensíveis)
+  if (method === 'credit_card') {
+    order.payment.cardBrand = input.cardBrand || input.paymentMethodId || '';
+    order.payment.cardLast4 = input.cardLast4 || '';
+    order.payment.deviceIdSent = !!input.deviceId;
+    if (!input.deviceId) {
+      console.warn('[Checkout] cartão sem device ID (security.js) —', order.orderNumber);
+    }
+  }
 
   // 4. Cria a order no Mercado Pago (API de Orders).
   // O MP cobra total_amount diretamente — sem distribuição de desconto por
@@ -455,6 +590,7 @@ export async function processCheckout(
             method: 'credit_card' as const,
             cardToken: input.cardToken!,
             paymentMethodId: input.paymentMethodId!,
+            cardType,
             installments,
           }
         : method === 'pix'
@@ -471,8 +607,18 @@ export async function processCheckout(
         phone: input.customer.phone,
       },
       shippingAddress: mapAddress(input.shippingAddress),
+      items: items.map(i => ({
+        name: i.variant ? `${i.name} - ${i.variant}` : i.name,
+        quantity: i.quantity,
+        amount: i.unitPrice,
+        sku: i.sku || undefined,
+        pictureUrl: absoluteImageUrl(i.image),
+      })),
+      description: `Pedido ${order.orderNumber} - ${company.name}`,
+      statementDescriptor: STATEMENT_DESCRIPTOR,
       payment,
       deviceId: input.deviceId,
+      attempt,
     });
 
     // 4a. Consumo do cupom: incremento atômico após sucesso no gateway.
@@ -503,12 +649,23 @@ export async function processCheckout(
       order.payment.boletoBarcode = pg.boleto.digitableLine;
     }
 
+    let failure: MpFailure | undefined;
     if (isPaidStatus(pg)) {
       order.payment.status = 'paid';
       order.payment.paidAt = new Date();
       order.status = 'confirmed';
+      order.payment.failureCode = '';
+      order.payment.failureMessage = '';
     } else if (isFailedStatus(pg)) {
-      order.payment.status = 'failed';
+      failure = pg.failure || describeFailure(pg.payment?.statusDetail || pg.statusDetail);
+      applyFailure(order, failure);
+      console.warn(
+        '[Checkout] cartão recusado',
+        order.orderNumber,
+        `tentativa ${attempt}`,
+        failure.code,
+        `deviceId=${!!input.deviceId}`,
+      );
     }
 
     await order.save();
@@ -534,6 +691,10 @@ export async function processCheckout(
         orderId: order._id.toString(),
         orderNumber: order.orderNumber,
         paymentStatus: order.payment.status,
+        failureCode: failure?.code,
+        failureMessage: failure?.customerMessage,
+        retryable: failure?.retryable,
+        attempts: attempt,
         total,
         discount: totalDiscount,
         installments,
@@ -561,43 +722,56 @@ export async function processCheckout(
       },
     };
   } catch (err) {
-    order.payment.status = 'failed';
-    // Se o MP criou a order mas o pagamento falhou (ex.: cartão recusado),
-    // o corpo de erro traz a order — vincula o ID para o webhook conseguir
-    // casar eventuais notificações desta order falhada.
-    if (err instanceof MercadoPagoError) {
-      const failedOrderId = (err.details as Record<string, any>)?.data?.id;
-      if (failedOrderId) order.payment.mpOrderId = String(failedOrderId);
-    }
+    // Erro de INTEGRAÇÃO/infra (400 payload inválido, 401 token, 5xx, rede).
+    // A recusa normal do cartão (402) já não lança — é tratada acima.
+    const details =
+      err instanceof MercadoPagoError
+        ? (err.details as
+            | {
+                id?: string;
+                message?: string;
+                data?: { id?: string };
+                errors?: Array<{ code?: string; message?: string }>;
+              }
+            | undefined)
+        : undefined;
+    const failedOrderId = details?.id || details?.data?.id;
+    if (failedOrderId) order.payment.mpOrderId = String(failedOrderId);
+
+    const code =
+      details?.errors?.[0]?.code ||
+      (err instanceof MercadoPagoError ? `http_${err.status}` : 'exception');
+    const mpMessage =
+      details?.errors?.[0]?.message ||
+      details?.message ||
+      (err instanceof Error ? err.message : 'Erro ao processar pagamento.');
+
+    applyFailure(order, {
+      code: String(code),
+      message: `Erro na integração com o Mercado Pago (${code}): ${mpMessage}`,
+      customerMessage: '',
+      retryable: true,
+    });
     await order.save().catch(() => {});
 
-    // 402 = transação recusada pelo emissor/gateway (não é erro do site).
-    // Devolve o mesmo contrato do fluxo normal de recusa: o PaymentForm
-    // mostra "Pagamento não autorizado pelo emissor do cartão...".
-    if (err instanceof MercadoPagoError && err.status === 402) {
-      return {
-        status: 402,
-        body: {
-          success: false,
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          paymentStatus: 'failed',
-        },
-      };
-    }
-
-    const message =
-      err instanceof MercadoPagoError
-        ? err.message
-        : 'Erro ao processar pagamento.';
     console.error(
       '[Checkout] Mercado Pago erro:',
-      message,
-      err instanceof MercadoPagoError ? err.details : err,
+      order.orderNumber,
+      mpMessage,
+      details ?? err,
     );
     return {
       status: 502,
-      body: { error: message, orderNumber: order.orderNumber },
+      body: {
+        success: false,
+        error:
+          'Não foi possível processar o pagamento agora. Tente novamente em instantes ou pague com PIX.',
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        paymentStatus: 'failed',
+        failureCode: String(code),
+        retryable: true,
+      },
     };
   }
 }

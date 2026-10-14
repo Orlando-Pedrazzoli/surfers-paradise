@@ -3,17 +3,27 @@
 // Substitui a Pagar.me V5 mantendo o MESMO contrato consumido por
 // services/checkout.ts: createOrder(input) → resultado normalizado.
 //
+// v2 (revisão de aprovação de cartão):
+// - RECUSA NÃO É MAIS OPACA: o status_detail do MP (insufficient_amount,
+//   high_risk, bad_filled_card_data, …) é normalizado em `failure`
+//   {code, message, customerMessage} e devolvido ao checkout para ser
+//   PERSISTIDO no pedido e mostrado no admin + ao cliente.
+// - HTTP 402 (documentado como "order criada, transação falhou") deixa de
+//   virar exceção: o corpo traz a order com status failed e é normalizado
+//   como resultado normal. Só erros reais (400/401/5xx) lançam.
+// - Payload enriquecido para o antifraude: items (title/unit_price/
+//   quantity/external_code/picture_url/category_id), description,
+//   payer.phone (area_code/number) e statement_descriptor. Todos os
+//   campos vêm do exemplo oficial da referência POST /v1/orders.
+// - Cartão de DÉBITO suportado: payment_method.type 'debit_card' com o id
+//   resolvido pelo BIN no front (debvisa/debmaster/debelo…), parcela única.
+//
 // Diferenças relevantes vs Pagar.me:
 // - Valores em REAIS como string decimal ("150.00"), não centavos.
-// - O MP cobra `total_amount` diretamente — não é preciso distribuir o
-//   desconto proporcionalmente nos itens (buildPagarmeItems aposentado).
-// - Cartão exige a BANDEIRA em payment_method.id (visa/master/amex/elo/
-//   hipercard) além do token — o frontend envia paymentMethodId.
-// - PIX devolve qr_code (copia-e-cola EMV), qr_code_base64 (imagem) e
-//   ticket_url (página hospedada com instruções).
-// - Webhook autenticado por HMAC (x-signature: ts=...,v1=...) com secret
-//   configurado no painel — validação em tempo constante, FAIL-CLOSED em
-//   produção.
+// - O MP cobra `total_amount` diretamente — items são informativos.
+// - Cartão exige a BANDEIRA em payment_method.id além do token.
+// - PIX devolve qr_code, qr_code_base64 e ticket_url.
+// - Webhook autenticado por HMAC (x-signature) — FAIL-CLOSED em produção.
 //
 // Env: MP_ACCESS_TOKEN (backend), MP_WEBHOOK_SECRET (assinatura do webhook).
 
@@ -22,14 +32,14 @@ import crypto from 'crypto';
 const MP_API = 'https://api.mercadopago.com';
 
 // ---------------------------------------------------------------------------
-// Tipos de entrada (compatíveis com os antigos Pagarme*Input)
+// Tipos de entrada
 // ---------------------------------------------------------------------------
 
 export interface MpCustomerInput {
   name: string;
   email: string;
   document: string; // CPF ou CNPJ, com ou sem máscara
-  phone?: string;
+  phone?: string; // qualquer máscara — normalizado para area_code/number
 }
 
 export interface MpAddressInput {
@@ -45,15 +55,21 @@ export interface MpAddressInput {
 export interface MpItemInput {
   name: string;
   quantity: number;
-  amount: number; // REAIS, unitário (informativo — o MP cobra o total)
+  amount: number; // REAIS, unitário
   sku?: string;
+  description?: string;
+  pictureUrl?: string; // precisa ser URL absoluta para ser enviada
 }
+
+export type MpCardType = 'credit_card' | 'debit_card';
 
 export type MpPaymentInput =
   | {
       method: 'credit_card';
       cardToken: string;
-      paymentMethodId: string; // bandeira: visa | master | amex | elo | hipercard
+      paymentMethodId: string; // visa | master | amex | elo | hipercard | debvisa | debmaster …
+      /** 'credit_card' (padrão) ou 'debit_card' — resolvido pelo BIN no front. */
+      cardType?: MpCardType;
       installments: number;
     }
   | {
@@ -71,7 +87,11 @@ export interface CreateOrderInput {
   totalAmount: number; // REAIS — valor final cobrado (itens - descontos + frete)
   customer: MpCustomerInput;
   shippingAddress?: MpAddressInput;
-  items?: MpItemInput[]; // informativo (não usado no MVP do payload)
+  items?: MpItemInput[];
+  /** Descrição curta da compra (aparece no painel do MP e ajuda o antifraude). */
+  description?: string;
+  /** Texto na fatura do cartão (≤ 22 chars, só letras/números/espaço). */
+  statementDescriptor?: string;
   payment: MpPaymentInput;
   /**
    * Device fingerprint do comprador (window.MP_DEVICE_SESSION_ID, gerado
@@ -80,11 +100,28 @@ export interface CreateOrderInput {
    * aprovação de cartão em produção. Opcional; omitido se ausente.
    */
   deviceId?: string;
+  /**
+   * Sufixo da chave de idempotência. Uma NOVA tentativa do mesmo pedido
+   * (novo token de cartão) precisa de chave nova — repetir a chave com
+   * payload diferente faz o MP responder idempotency_key_already_used.
+   */
+  attempt?: number;
 }
 
 // ---------------------------------------------------------------------------
-// Resultado normalizado (espelha o PagarmeOrderResult)
+// Resultado normalizado
 // ---------------------------------------------------------------------------
+
+export interface MpFailure {
+  /** status_detail cru do MP (ex.: cc_rejected_insufficient_amount). */
+  code: string;
+  /** Explicação para o ADMIN (pt-BR). */
+  message: string;
+  /** Mensagem segura para mostrar ao CLIENTE (pt-BR). */
+  customerMessage: string;
+  /** Se faz sentido o cliente tentar de novo com o MESMO cartão. */
+  retryable: boolean;
+}
 
 export interface MpOrderResult {
   id: string; // ORD...
@@ -99,6 +136,8 @@ export interface MpOrderResult {
     status: string;
     statusDetail?: string;
   };
+  /** Preenchido quando a order/pagamento está em estado terminal de falha. */
+  failure?: MpFailure;
   pix?: {
     qrCode: string; // copia-e-cola (EMV)
     qrCodeBase64: string; // imagem PNG em base64 (sem prefixo data:)
@@ -149,6 +188,31 @@ function splitName(full: string): { first: string; last: string } {
   return { first: parts[0], last: parts.slice(1).join(' ') };
 }
 
+/**
+ * Telefone BR em qualquer máscara → {area_code, number} do MP.
+ * Aceita com ou sem DDI 55. Devolve undefined se não houver DDD + número.
+ */
+export function splitPhone(
+  raw?: string,
+): { area_code: string; number: string } | undefined {
+  let d = onlyDigits(raw || '');
+  if (d.startsWith('55') && d.length >= 12) d = d.slice(2);
+  if (d.length < 10 || d.length > 11) return undefined;
+  return { area_code: d.slice(0, 2), number: d.slice(2) };
+}
+
+/** Descritor de fatura: ≤ 22 chars, só A–Z, 0–9 e espaço (regra do MP). */
+export function toStatementDescriptor(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 22);
+}
+
 function buildPayer(customer: MpCustomerInput, address?: MpAddressInput) {
   const doc = onlyDigits(customer.document);
   const { first, last } = splitName(customer.name);
@@ -161,21 +225,49 @@ function buildPayer(customer: MpCustomerInput, address?: MpAddressInput) {
       number: doc,
     },
   };
+  // Telefone: opcional, mas é um dos dados que o antifraude do MP usa para
+  // cruzar com o emissor. Só enviamos se estiver bem formado.
+  const phone = splitPhone(customer.phone);
+  if (phone) payer.phone = phone;
+
   // Endereço do pagador: OBRIGATÓRIO para boleto (zip_code, street_name,
   // street_number, neighborhood, city, state com 2 letras). Para cartão e
   // PIX é opcional, mas ajuda o antifraude do MP — incluímos sempre que
-  // disponível.
+  // disponível. street_number precisa ser numérico-ish: "S/N" vira "0".
   if (address) {
+    const streetNumber = onlyDigits(address.number) || '0';
     payer.address = {
       zip_code: onlyDigits(address.zipCode),
       street_name: address.street,
-      street_number: address.number || 'N/A',
+      street_number: streetNumber,
       neighborhood: address.neighborhood,
       city: address.city,
       state: (address.state || '').toUpperCase().slice(0, 2),
+      ...(address.complement ? { complement: address.complement } : {}),
     };
   }
   return payer;
+}
+
+/** Categoria informativa dos itens (lista fixa do MP). Loja de surf → others. */
+const MP_ITEM_CATEGORY = 'others';
+
+function buildItems(items?: MpItemInput[]) {
+  if (!items?.length) return undefined;
+  return items.map(i => {
+    const item: Record<string, unknown> = {
+      title: String(i.name || 'Produto').slice(0, 256),
+      unit_price: toAmountString(i.amount),
+      quantity: Math.max(1, Math.round(i.quantity)),
+      category_id: MP_ITEM_CATEGORY,
+    };
+    if (i.sku) item.external_code = String(i.sku).slice(0, 256);
+    if (i.description) item.description = String(i.description).slice(0, 256);
+    if (i.pictureUrl && /^https?:\/\//i.test(i.pictureUrl)) {
+      item.picture_url = i.pictureUrl;
+    }
+    return item;
+  });
 }
 
 /** Duração ISO 8601 para expiration_time do PIX (ex.: 3600 → "PT1H"). */
@@ -195,13 +287,30 @@ function toIsoDayDuration(days: number): string {
   return `P${d}D`;
 }
 
-async function mpRequest<T>(
+function maskForLog(body: unknown): unknown {
+  try {
+    const masked = JSON.parse(JSON.stringify(body));
+    const pm = masked?.transactions?.payments?.[0]?.payment_method;
+    if (pm?.token) pm.token = `${String(pm.token).slice(0, 6)}…`;
+    return masked;
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+interface MpHttpResult<T> {
+  ok: boolean;
+  status: number;
+  data: T;
+}
+
+async function mpRequestRaw<T>(
   method: 'GET' | 'POST',
   path: string,
   body?: unknown,
   idempotencyKey?: string,
   deviceId?: string,
-): Promise<T> {
+): Promise<MpHttpResult<T>> {
   const headers: Record<string, string> = {
     accept: 'application/json',
     Authorization: `Bearer ${getAccessToken()}`,
@@ -218,40 +327,54 @@ async function mpRequest<T>(
     cache: 'no-store',
   });
 
-  const data = await res.json().catch(() => ({}));
+  const data = (await res.json().catch(() => ({}))) as T;
+  return { ok: res.ok, status: res.status, data };
+}
 
-  if (!res.ok) {
-    const message =
-      (data as Record<string, any>)?.message ||
-      (data as Record<string, any>)?.errors?.[0]?.message ||
-      `Mercado Pago respondeu ${res.status}`;
-    // 🔍 Diagnóstico: loga o payload enviado (token de cartão mascarado)
-    // para comparar com os exemplos oficiais quando a API rejeita.
+function extractErrorMessage(data: Record<string, any>, status: number) {
+  return (
+    data?.message ||
+    data?.errors?.[0]?.message ||
+    data?.errors?.[0]?.code ||
+    `Mercado Pago respondeu ${status}`
+  );
+}
+
+async function mpRequest<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+  idempotencyKey?: string,
+  deviceId?: string,
+): Promise<T> {
+  const { ok, status, data } = await mpRequestRaw<Record<string, any>>(
+    method,
+    path,
+    body,
+    idempotencyKey,
+    deviceId,
+  );
+
+  if (!ok) {
+    const message = extractErrorMessage(data, status);
     if (body !== undefined) {
-      try {
-        const masked = JSON.parse(JSON.stringify(body));
-        const pm = masked?.transactions?.payments?.[0]?.payment_method;
-        if (pm?.token) pm.token = `${String(pm.token).slice(0, 6)}…`;
-        console.error(
-          '[MP] request rejeitado',
-          res.status,
-          path,
-          '\npayload:',
-          JSON.stringify(masked, null, 2),
-          '\nresposta:',
-          JSON.stringify(data, null, 2),
-        );
-      } catch {
-        /* log é best-effort */
-      }
+      console.error(
+        '[MP] request rejeitado',
+        status,
+        path,
+        '\npayload:',
+        JSON.stringify(maskForLog(body), null, 2),
+        '\nresposta:',
+        JSON.stringify(data, null, 2),
+      );
     }
-    throw new MercadoPagoError(message, res.status, data);
+    throw new MercadoPagoError(message, status, data);
   }
   return data as T;
 }
 
 // ---------------------------------------------------------------------------
-// Normalização
+// Normalização de status
 // ---------------------------------------------------------------------------
 
 /** Status (de order OU de payment) que significam pagamento confirmado. */
@@ -286,6 +409,204 @@ export function isRefundedStatus(result: MpOrderResult): boolean {
   return result.status === 'refunded' || result.payment?.status === 'refunded';
 }
 
+// ---------------------------------------------------------------------------
+// Motivos de recusa (status_detail → mensagens)
+// ---------------------------------------------------------------------------
+
+interface FailureSpec {
+  message: string;
+  customerMessage: string;
+  retryable: boolean;
+}
+
+const GENERIC_CUSTOMER =
+  'O emissor do cartão não autorizou o pagamento. Confira os dados, tente outro cartão ou pague com PIX.';
+
+/**
+ * Tabela de status_detail do MP. A Orders API usa tanto os códigos
+ * "clássicos" (cc_rejected_*) quanto formas curtas (insufficient_amount,
+ * high_risk…). A busca é por CHAVE CONTIDA no código, após remover o
+ * prefixo cc_rejected_, então as duas famílias caem na mesma linha.
+ */
+const FAILURE_TABLE: Array<[string, FailureSpec]> = [
+  [
+    'bad_filled_card_number',
+    {
+      message: 'Número do cartão inválido (bad_filled_card_number).',
+      customerMessage: 'Número do cartão inválido. Confira e tente novamente.',
+      retryable: true,
+    },
+  ],
+  [
+    'bad_filled_date',
+    {
+      message: 'Validade do cartão inválida (bad_filled_date).',
+      customerMessage: 'Data de validade inválida. Confira e tente novamente.',
+      retryable: true,
+    },
+  ],
+  [
+    'bad_filled_security_code',
+    {
+      message: 'CVV inválido (bad_filled_security_code).',
+      customerMessage:
+        'Código de segurança (CVV) inválido. Confira e tente novamente.',
+      retryable: true,
+    },
+  ],
+  [
+    'bad_filled',
+    {
+      message:
+        'Dados do cartão incorretos — geralmente CPF do titular ou nome divergente do emissor (bad_filled_other / bad_filled_card_data).',
+      customerMessage:
+        'Algum dado do cartão não confere (nome, CPF do titular, validade ou CVV). Revise e tente novamente.',
+      retryable: true,
+    },
+  ],
+  [
+    'insufficient_amount',
+    {
+      message: 'Saldo/limite insuficiente no cartão (insufficient_amount).',
+      customerMessage:
+        'O cartão não tem limite disponível para este valor. Tente outro cartão, menos parcelas ou PIX.',
+      retryable: false,
+    },
+  ],
+  [
+    'invalid_installments',
+    {
+      message:
+        'Emissor não aceita o número de parcelas escolhido (invalid_installments).',
+      customerMessage:
+        'O emissor não aceitou esse parcelamento. Tente com menos parcelas.',
+      retryable: true,
+    },
+  ],
+  [
+    'call_for_authorize',
+    {
+      message:
+        'Emissor pede autorização por telefone (call_for_authorize). O cliente precisa ligar para o banco e liberar a compra.',
+      customerMessage:
+        'O banco pede que você autorize esta compra. Ligue para o emissor do cartão e tente novamente, ou pague com PIX.',
+      retryable: true,
+    },
+  ],
+  [
+    'card_disabled',
+    {
+      message: 'Cartão bloqueado/inativo no emissor (card_disabled).',
+      customerMessage:
+        'Este cartão está bloqueado ou inativo. Fale com o banco ou use outro cartão.',
+      retryable: false,
+    },
+  ],
+  [
+    'card_error',
+    {
+      message: 'Erro genérico do emissor ao processar o cartão (card_error).',
+      customerMessage: GENERIC_CUSTOMER,
+      retryable: true,
+    },
+  ],
+  [
+    'duplicated_payment',
+    {
+      message:
+        'O emissor detectou pagamento duplicado (duplicated_payment) — mesmo cartão, valor e intervalo curto.',
+      customerMessage:
+        'Já existe um pagamento igual em processamento. Aguarde alguns minutos antes de tentar de novo.',
+      retryable: false,
+    },
+  ],
+  [
+    'high_risk',
+    {
+      message:
+        'Recusado pelo antifraude do Mercado Pago (high_risk). Causas típicas: várias tentativas seguidas, dados do comprador/titular inconsistentes, device ID ausente.',
+      customerMessage:
+        'Não foi possível aprovar este pagamento por segurança. Tente pagar com PIX ou use outro cartão.',
+      retryable: false,
+    },
+  ],
+  [
+    'rejected_by_issuer',
+    {
+      message: 'Recusado pelo emissor por suspeita de fraude (rejected_by_issuer).',
+      customerMessage: GENERIC_CUSTOMER,
+      retryable: false,
+    },
+  ],
+  [
+    'blacklist',
+    {
+      message: 'Cartão em lista restritiva do MP (blacklist).',
+      customerMessage: GENERIC_CUSTOMER,
+      retryable: false,
+    },
+  ],
+  [
+    'max_attempts',
+    {
+      message:
+        'Limite de tentativas atingido no emissor/MP (max_attempts). O cliente deve esperar antes de tentar novamente.',
+      customerMessage:
+        'Muitas tentativas com este cartão. Aguarde alguns minutos ou pague com PIX.',
+      retryable: false,
+    },
+  ],
+  [
+    '3ds',
+    {
+      message:
+        'Recusa relacionada a autenticação 3DS (challenge obrigatório ou falhou). A integração ainda não executa o desafio 3DS.',
+      customerMessage: GENERIC_CUSTOMER,
+      retryable: false,
+    },
+  ],
+  [
+    'other_reason',
+    {
+      message:
+        'Recusa genérica do emissor sem motivo detalhado (other_reason). Frequentemente: cartão de débito/virtual sem função crédito online, ou compra internacional bloqueada.',
+      customerMessage: GENERIC_CUSTOMER,
+      retryable: false,
+    },
+  ],
+  [
+    'expired',
+    {
+      message: 'Order/pagamento expirado no MP (expired).',
+      customerMessage: 'O pagamento expirou. Gere um novo pagamento.',
+      retryable: true,
+    },
+  ],
+  [
+    'cancel',
+    {
+      message: 'Order cancelada no MP (cancelled).',
+      customerMessage: 'O pagamento foi cancelado.',
+      retryable: true,
+    },
+  ],
+];
+
+/** Traduz o status_detail do MP para mensagens de admin e de cliente. */
+export function describeFailure(rawCode?: string, fallback?: string): MpFailure {
+  const code = String(rawCode || fallback || 'unknown').trim();
+  const key = code.toLowerCase().replace(/^cc_rejected_/, '');
+  for (const [needle, spec] of FAILURE_TABLE) {
+    if (key.includes(needle)) return { code, ...spec };
+  }
+  return {
+    code,
+    message: `Recusa não catalogada: ${code}${fallback && fallback !== code ? ` — ${fallback}` : ''}.`,
+    customerMessage: GENERIC_CUSTOMER,
+    retryable: true,
+  };
+}
+
 function normalizeOrder(data: Record<string, any>): MpOrderResult {
   const payment = data?.transactions?.payments?.[0];
   const pm = payment?.payment_method;
@@ -307,6 +628,22 @@ function normalizeOrder(data: Record<string, any>): MpOrderResult {
         ? String(payment.status_detail)
         : undefined,
     };
+  }
+
+  // Falha terminal → motivo normalizado. Prioridade: status_detail do
+  // PAGAMENTO (é onde vem cc_rejected_*), depois o da order, depois o
+  // primeiro erro do corpo (formato 402: {errors:[{code,message}]}).
+  if (isFailedStatus(result) || data?.errors?.length) {
+    const errCode = data?.errors?.[0]?.code;
+    const errMsg = data?.errors?.[0]?.message;
+    const detail =
+      payment?.status_detail ||
+      (result.statusDetail && result.statusDetail !== 'rejected'
+        ? result.statusDetail
+        : undefined) ||
+      errCode ||
+      result.statusDetail;
+    result.failure = describeFailure(detail, errMsg || errCode);
   }
 
   // BOLETO (type ticket): identificado pela linha digitável / barcode.
@@ -340,12 +677,18 @@ export async function createOrder(
   const paymentNode: Record<string, unknown> = { amount };
 
   if (input.payment.method === 'credit_card') {
-    paymentNode.payment_method = {
+    const cardType: MpCardType = input.payment.cardType || 'credit_card';
+    const pmNode: Record<string, unknown> = {
       id: input.payment.paymentMethodId,
-      type: 'credit_card',
+      type: cardType,
       token: input.payment.cardToken,
-      installments: input.payment.installments,
+      // Débito não parcela.
+      installments: cardType === 'debit_card' ? 1 : input.payment.installments,
     };
+    if (input.statementDescriptor) {
+      pmNode.statement_descriptor = input.statementDescriptor;
+    }
+    paymentNode.payment_method = pmNode;
   } else if (input.payment.method === 'pix') {
     paymentNode.payment_method = { id: 'pix', type: 'bank_transfer' };
     paymentNode.expiration_time = toIsoDuration(
@@ -353,15 +696,13 @@ export async function createOrder(
     );
   } else {
     // BOLETO — payload oficial da API de Orders: id "boleto", type "ticket".
-    // Vencimento padrão de 3 dias ("P3D", recomendação da documentação para
-    // não conflitar com a compensação de até 2h úteis).
     paymentNode.payment_method = { id: 'boleto', type: 'ticket' };
     paymentNode.expiration_time = toIsoDayDuration(
       input.payment.expiresInDays ?? 3,
     );
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     type: 'online',
     processing_mode: 'automatic',
     total_amount: amount,
@@ -369,20 +710,63 @@ export async function createOrder(
     payer: buildPayer(input.customer, input.shippingAddress),
     transactions: { payments: [paymentNode] },
   };
+  if (input.description) body.description = input.description.slice(0, 256);
+  const items = buildItems(input.items);
+  if (items) body.items = items;
 
-  // Idempotência: mesma order interna + método → mesma chave. Um retry do
-  // usuário não duplica a cobrança; um novo PIX após expirar gera pedido novo
-  // (orderNumber novo), então ganha chave nova naturalmente.
-  const idempotencyKey = `${input.code}-${input.payment.method}`;
+  // Idempotência: mesma order interna + método + TENTATIVA → mesma chave.
+  // Um retry de rede não duplica a cobrança; uma nova tentativa do cliente
+  // (novo token) ganha chave nova, senão o MP devolve
+  // idempotency_key_already_used.
+  const idempotencyKey = `${input.code}-${input.payment.method}-${input.attempt ?? 1}`;
 
-  const data = await mpRequest<Record<string, any>>(
+  const { ok, status, data } = await mpRequestRaw<Record<string, any>>(
     'POST',
     '/v1/orders',
     body,
     idempotencyKey,
     input.deviceId,
   );
-  return normalizeOrder(data);
+
+  if (ok) return normalizeOrder(data);
+
+  // 402 (documentado): "order criada mas a transação falhou". O corpo é a
+  // própria order (status failed + errors[]). NÃO é erro de integração —
+  // é a recusa normal do cartão, devolvida como resultado para o checkout
+  // persistir o motivo. Também aceitamos 4xx cujo corpo traga uma order
+  // com status failed (variações de versão da API).
+  const looksLikeFailedOrder =
+    data && (data.id || data.status === 'failed' || data.transactions);
+  if (status === 402 || (status < 500 && looksLikeFailedOrder && data.status)) {
+    console.warn(
+      '[MP] cartão recusado',
+      status,
+      input.code,
+      data?.transactions?.payments?.[0]?.status_detail ||
+        data?.status_detail ||
+        data?.errors?.[0]?.code,
+    );
+    const normalized = normalizeOrder({ ...data, status: data.status || 'failed' });
+    if (!normalized.failure) {
+      normalized.failure = describeFailure(
+        data?.errors?.[0]?.code,
+        data?.errors?.[0]?.message,
+      );
+    }
+    return normalized;
+  }
+
+  const message = extractErrorMessage(data, status);
+  console.error(
+    '[MP] request rejeitado',
+    status,
+    '/v1/orders',
+    '\npayload:',
+    JSON.stringify(maskForLog(body), null, 2),
+    '\nresposta:',
+    JSON.stringify(data, null, 2),
+  );
+  throw new MercadoPagoError(message, status, data);
 }
 
 export async function getOrder(orderId: string): Promise<MpOrderResult> {

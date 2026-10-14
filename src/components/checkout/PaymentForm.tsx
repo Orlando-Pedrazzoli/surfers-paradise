@@ -1,4 +1,9 @@
 // 📄 src/components/checkout/PaymentForm.tsx
+// v5 (revisão de aprovação de cartão): a recusa do cartão mostra a MENSAGEM
+//     REAL devolvida pelo backend (failureMessage, traduzida do status_detail
+//     do MP) em vez de um texto fixo; o CreditCardForm recebe a recusa para
+//     ativar o cooldown anti-retry. cardType/cardBrand/cardLast4 sobem para
+//     o backend (débito + diagnóstico no admin).
 // v4: BOLETO reativado (API de Orders do MP) — aba de volta na UI, com
 //     desconto boletoDiscountPercent e tela BoletoPayment após a emissão.
 // v4: deviceId (fingerprint do security.js) repassado no payload do cartão.
@@ -18,7 +23,10 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { CreditCard, QrCode, FileText } from 'lucide-react';
 import { company } from '@/lib/config/company';
-import CreditCardForm from './CreditCardForm';
+import CreditCardForm, {
+  type CardTokenData,
+  type CardFailure,
+} from './CreditCardForm';
 import PixPayment from './PixPayment';
 import BoletoPayment from './BoletoPayment';
 import type {
@@ -45,6 +53,10 @@ type CheckoutResponseExt = CheckoutResponse & {
   updatedPrices?: UpdatedPrice[];
   paymentStatus?: string;
   orderId?: string;
+  failureCode?: string;
+  failureMessage?: string;
+  retryable?: boolean;
+  attempts?: number;
 };
 
 interface PaymentFormProps {
@@ -83,6 +95,7 @@ export default function PaymentForm({
   const [method, setMethod] = useState<Method>('credit_card');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [cardFailure, setCardFailure] = useState<CardFailure | null>(null);
   const [pix, setPix] = useState<
     (PixResult & { orderNumber: string; orderId?: string }) | null
   >(null);
@@ -139,17 +152,24 @@ export default function PaymentForm({
       }
 
       if (!data.success) {
-        // 402 do cartão recusado vem sem campo error — mensagem específica
-        // para o cliente entender que é o cartão, não o site.
-        if (data.paymentStatus === 'failed') {
-          setError(
-            'Pagamento não autorizado pelo emissor do cartão. Confira os dados ou tente outro cartão.',
-          );
+        // Cartão recusado (402) ou erro de integração (502): o backend já
+        // devolve a mensagem certa para o cliente. O CreditCardForm mostra a
+        // recusa e aplica o cooldown; aqui só o erro genérico/outros métodos.
+        if (data.paymentStatus === 'failed' && endpoint.includes('/card')) {
+          setCardFailure({
+            message:
+              data.failureMessage ||
+              data.error ||
+              'Pagamento não autorizado pelo emissor do cartão. Confira os dados ou tente outro cartão.',
+            retryable: data.retryable !== false,
+            at: Date.now(),
+          });
         } else {
           setError(data.error || 'Não foi possível processar o pagamento.');
         }
         return null;
       }
+      setCardFailure(null);
       return data;
     } catch {
       setError('Erro de conexão. Tente novamente.');
@@ -162,17 +182,18 @@ export default function PaymentForm({
   async function handleCardToken({
     cardToken,
     paymentMethodId,
+    cardType,
+    cardBrand,
+    cardLast4,
     installments,
     deviceId,
-  }: {
-    cardToken: string;
-    paymentMethodId: string;
-    installments: number;
-    deviceId?: string;
-  }) {
+  }: CardTokenData) {
     const data = await postCheckout('/api/payments/card', {
       cardToken,
       paymentMethodId,
+      cardType,
+      cardBrand,
+      cardLast4,
       installments,
       deviceId,
     });
@@ -247,6 +268,7 @@ export default function PaymentForm({
             onClick={() => {
               setMethod(t.id);
               setError('');
+              setCardFailure(null);
             }}
             className={`flex flex-col items-center gap-1 rounded-lg border px-3 py-3 text-sm font-medium transition ${
               method === t.id
@@ -271,6 +293,7 @@ export default function PaymentForm({
           amount={totals.credit_card}
           holderDocument={customer.document}
           loading={submitting}
+          failure={cardFailure}
           onToken={handleCardToken}
         />
       )}
