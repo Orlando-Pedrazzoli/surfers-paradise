@@ -51,7 +51,12 @@ export interface CheckoutRequestBase {
 
 export interface CardCheckoutRequest extends CheckoutRequestBase {
   cardToken: string;
+  paymentMethodId: string; // id do MP resolvido pelo BIN (visa, debvisa…)
+  cardType?: 'credit_card' | 'debit_card';
+  cardBrand?: string;
+  cardLast4?: string;
   installments: number;
+  deviceId?: string;
 }
 
 export interface PixResult {
@@ -78,4 +83,9 @@ export interface CheckoutResponse {
   pix?: PixResult;
   boleto?: BoletoResult;
   error?: string;
+  // Recusa de cartão (paymentStatus 'failed')
+  failureCode?: string; // status_detail do MP
+  failureMessage?: string; // mensagem para o cliente
+  retryable?: boolean;
+  attempts?: number;
 }

@@ -76,6 +76,21 @@ export interface IOrderPayment {
   cashChange?: number; // Troco devolvido
   // Comum
   paidAt?: Date;
+  // ═══ Diagnóstico de cartão (Mercado Pago) ═══
+  /** Número de tentativas de cobrança neste pedido (retries reaproveitam o pedido). */
+  attempts?: number;
+  /** status_detail cru do MP na última recusa (ex.: cc_rejected_high_risk). */
+  failureCode?: string;
+  /** Explicação da recusa para o admin (pt-BR). */
+  failureMessage?: string;
+  /** Quando ocorreu a última recusa. */
+  failedAt?: Date;
+  /** Bandeira resolvida pelo BIN (visa, master, elo, debvisa…). */
+  cardBrand?: string;
+  /** Últimos 4 dígitos do cartão (devolvidos pela tokenização — não sensíveis). */
+  cardLast4?: string;
+  /** Se o device fingerprint do MP foi enviado nesta cobrança. */
+  deviceIdSent?: boolean;
 }
 
 export interface IOrderShipping {

@@ -80,6 +80,15 @@ interface OrderDetail {
     cashReceived: number;
     cashChange: number;
     paidAt?: string;
+    // Diagnóstico de cartão (Mercado Pago)
+    attempts?: number;
+    failureCode?: string;
+    failureMessage?: string;
+    failedAt?: string;
+    cardBrand?: string;
+    cardLast4?: string;
+    deviceIdSent?: boolean;
+    mpOrderId?: string;
   };
   shipping?: {
     method: string;
@@ -616,6 +625,47 @@ export default function AdminOrderDetailPage({
               <p className='text-xs text-gray-400 mt-2'>
                 Pago em {formatDateTime(order.payment.paidAt)}
               </p>
+            )}
+            {/* CARTÃO: bandeira / final / tentativas / device ID */}
+            {(order.payment.method === 'credit_card' ||
+              order.payment.method === 'debit_card') &&
+              (order.payment.cardBrand ||
+                order.payment.cardLast4 ||
+                (order.payment.attempts ?? 0) > 1) && (
+                <p className='text-xs text-gray-500 mt-2'>
+                  {order.payment.cardBrand && (
+                    <span className='capitalize'>{order.payment.cardBrand}</span>
+                  )}
+                  {order.payment.cardLast4 && (
+                    <span className='font-mono'>
+                      {' '}
+                      •••• {order.payment.cardLast4}
+                    </span>
+                  )}
+                  {(order.payment.attempts ?? 0) > 1 && (
+                    <span> · {order.payment.attempts} tentativas</span>
+                  )}
+                  {order.payment.deviceIdSent === false && (
+                    <span className='text-orange-600'> · sem device ID</span>
+                  )}
+                </p>
+              )}
+            {/* MOTIVO DA RECUSA (status_detail do Mercado Pago) */}
+            {order.payment.status === 'failed' && order.payment.failureCode && (
+              <div className='mt-3 rounded-md border border-red-100 bg-red-50 p-2.5 text-xs'>
+                <p className='font-semibold text-red-700'>
+                  Motivo da recusa
+                </p>
+                <p className='mt-1 text-red-700'>
+                  {order.payment.failureMessage || order.payment.failureCode}
+                </p>
+                <p className='mt-1 font-mono text-[10px] text-red-400'>
+                  {order.payment.failureCode}
+                  {order.payment.failedAt &&
+                    ` · ${formatDateTime(order.payment.failedAt)}`}
+                  {order.payment.mpOrderId && ` · ${order.payment.mpOrderId}`}
+                </p>
+              </div>
             )}
             {/* DINHEIRO: troco */}
             {order.payment.method === 'cash' &&

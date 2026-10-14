@@ -94,6 +94,14 @@ const orderSchema = new Schema<IOrder>(
       cashChange: { type: Number, default: 0 },
       // Comum
       paidAt: { type: Date },
+      // Diagnóstico de cartão (Mercado Pago) — ver services/checkout.ts
+      attempts: { type: Number, default: 1 },
+      failureCode: { type: String, default: '' },
+      failureMessage: { type: String, default: '' },
+      failedAt: { type: Date },
+      cardBrand: { type: String, default: '' },
+      cardLast4: { type: String, default: '' },
+      deviceIdSent: { type: Boolean, default: false },
     },
 
     // ═══ ESTOQUE ═══

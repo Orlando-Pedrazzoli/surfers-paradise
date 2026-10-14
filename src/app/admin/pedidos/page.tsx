@@ -28,7 +28,13 @@ interface OrderListItem {
   total: number;
   customerSnapshot: { name: string; cpf: string; phone: string; email: string };
   user: { _id: string; name: string; email: string } | null;
-  payment: { method: string; status: string };
+  payment: {
+    method: string;
+    status: string;
+    failureCode?: string;
+    failureMessage?: string;
+    attempts?: number;
+  };
   items: { name: string; quantity: number }[];
   createdAt: string;
 }
@@ -358,6 +364,26 @@ export default function AdminPedidosPage() {
                           {o.payment.status === 'refunded' && (
                             <p className='text-[10px] text-purple-600 font-medium'>
                               Estornado
+                            </p>
+                          )}
+                          {o.payment.status === 'failed' && (
+                            <p
+                              className='text-[10px] text-red-600 font-medium'
+                              title={o.payment.failureMessage || ''}
+                            >
+                              Recusado
+                              {o.payment.failureCode && (
+                                <span className='font-mono text-red-400'>
+                                  {' '}
+                                  ·{' '}
+                                  {o.payment.failureCode.replace(
+                                    /^cc_rejected_/,
+                                    '',
+                                  )}
+                                </span>
+                              )}
+                              {(o.payment.attempts ?? 0) > 1 &&
+                                ` · ${o.payment.attempts}x`}
                             </p>
                           )}
                         </td>

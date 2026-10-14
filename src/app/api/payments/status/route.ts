@@ -95,6 +95,11 @@ export async function GET(request: Request) {
         );
       } else if (isFailedStatus(pg)) {
         order.payment.status = 'failed';
+        if (pg.failure) {
+          order.payment.failureCode = pg.failure.code;
+          order.payment.failureMessage = pg.failure.message;
+          order.payment.failedAt = new Date();
+        }
         if (['canceled', 'cancelled', 'expired'].includes(pg.status)) {
           order.status = 'cancelled';
         }

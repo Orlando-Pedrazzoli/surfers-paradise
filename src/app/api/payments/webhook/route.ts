@@ -193,14 +193,25 @@ export async function POST(request: Request) {
     }
 
     if (isFailedStatus(gw)) {
-      if (order.payment.status !== 'paid') {
+      // Evento de uma order ANTIGA do MP (tentativa anterior de cartão que o
+      // checkout já reaproveitou com nova tentativa): o pedido local já
+      // aponta para outro mpOrderId — ignorar para não derrubar a tentativa
+      // em curso. (O vínculo por external_reference é o que traz estes casos.)
+      const stale =
+        !!order.payment.mpOrderId && order.payment.mpOrderId !== gw.id;
+      if (order.payment.status !== 'paid' && !stale) {
         order.payment.status = 'failed';
+        if (gw.failure) {
+          order.payment.failureCode = gw.failure.code;
+          order.payment.failureMessage = gw.failure.message;
+          order.payment.failedAt = new Date();
+        }
         if (['canceled', 'cancelled', 'expired'].includes(gw.status)) {
           order.status = 'cancelled';
         }
         await order.save();
       }
-      return NextResponse.json({ received: true });
+      return NextResponse.json({ received: true, stale });
     }
 
     // created / action_required / processing → apenas confirma recebimento
