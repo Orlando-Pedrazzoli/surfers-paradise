@@ -1,3 +1,4 @@
+/* src/app/globals.css */
 @import 'tailwindcss';
 
 :root {
@@ -37,4 +38,66 @@ html {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAINEL ADMIN — layout mobile tipo app
+   CSS puro (não classes Tailwind) para padding crítico: o espaço
+   reservado à barra fixa inferior não pode sumir no build.
+   64px = ADMIN_BOTTOM_NAV_HEIGHT (AdminBottomNav.tsx)
+   ═══════════════════════════════════════════════════════════════ */
+.admin-main {
+  padding: 16px 12px calc(64px + env(safe-area-inset-bottom) + 24px);
+}
+@media (min-width: 640px) {
+  .admin-main {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+@media (min-width: 1024px) {
+  .admin-main {
+    padding: 24px;
+  }
+}
+
+/* Barras de ação fixas dentro do admin (ex.: salvar produto) ficam
+   logo acima da barra inferior no mobile */
+.admin-sticky-actions {
+  position: sticky;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+}
+@media (min-width: 1024px) {
+  .admin-sticky-actions {
+    bottom: 0;
+  }
+}
+
+/* Faixas roláveis horizontalmente (chips de filtro) sem barra visível */
+.admin-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.admin-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes adminSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Inputs com fonte >= 16px no mobile: evita o zoom automático do iOS
+   ao focar campos do admin */
+@media (max-width: 1023px) {
+  .admin-main input:not([type='checkbox']):not([type='radio']):not([type='color']),
+  .admin-main select,
+  .admin-main textarea {
+    font-size: 16px;
+  }
 }

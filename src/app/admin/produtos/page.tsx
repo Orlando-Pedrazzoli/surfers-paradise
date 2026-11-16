@@ -1,3 +1,6 @@
+// src/app/admin/produtos/page.tsx
+// v2 (mobile): lista em cards no celular, atalhos de filtro em chips,
+//     painel de filtros recolhível; tabela mantida em md+.
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -97,6 +100,9 @@ export default function AdminProdutosPage() {
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Mobile: painel de filtros recolhido por padrão
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filtros lidos da URL
   const filters = useMemo(() => {
@@ -379,11 +385,11 @@ export default function AdminProdutosPage() {
   return (
     <div>
       {/* HEADER */}
-      <div className='flex items-center justify-between mb-6 flex-wrap gap-3'>
-        <div>
-          <h1 className='text-2xl font-bold'>Produtos</h1>
+      <div className='flex items-center justify-between mb-4 lg:mb-6 flex-wrap gap-3'>
+        <div className='min-w-0'>
+          <h1 className='hidden lg:block text-2xl font-bold'>Produtos</h1>
           {facets && (
-            <p className='text-sm text-gray-500 mt-1'>
+            <p className='text-xs sm:text-sm text-gray-500 lg:mt-1'>
               {facets.total} no catálogo · {facets.channel.online} no site ·{' '}
               {facets.stock.lowStock} estoque baixo · {facets.stock.outOfStock}{' '}
               esgotados
@@ -392,7 +398,7 @@ export default function AdminProdutosPage() {
         </div>
         <Link
           href='/admin/produtos/novo'
-          className='flex items-center gap-2 px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
+          className='hidden lg:flex items-center gap-2 px-4 py-2 bg-[#FF6600] text-white rounded-md hover:bg-[#e55b00] transition-colors'
         >
           <Plus size={18} />
           Novo Produto
@@ -411,7 +417,7 @@ export default function AdminProdutosPage() {
               type='text'
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              placeholder='Buscar por nome, SKU, GTIN ou tag...'
+              placeholder='Nome, SKU, GTIN ou tag'
               className='w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
             />
           </div>
@@ -419,9 +425,81 @@ export default function AdminProdutosPage() {
             type='submit'
             className='px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-900 transition-colors'
           >
-            Buscar
+            <span className='hidden sm:inline'>Buscar</span>
+            <Search size={18} className='sm:hidden' />
+          </button>
+          <button
+            type='button'
+            onClick={() => setFiltersOpen(o => !o)}
+            className='lg:hidden relative px-3 py-2 border border-gray-300 bg-white rounded-md text-gray-700'
+            aria-label='Filtros'
+          >
+            <Filter size={18} />
+            {activeFiltersCount - (filters.search ? 1 : 0) > 0 && (
+              <span
+                className='absolute -top-1.5 -right-1.5 rounded-full text-white text-[10px] font-bold flex items-center justify-center'
+                style={{ background: '#FF6600', minWidth: 18, height: 18 }}
+              >
+                {activeFiltersCount - (filters.search ? 1 : 0)}
+              </span>
+            )}
           </button>
         </form>
+
+        {/* Atalhos rápidos (mobile) */}
+        {facets && (
+          <div className='lg:hidden admin-scroll-x -mx-3 px-3 sm:mx-0 sm:px-0 mb-3'>
+            <div className='flex gap-2 w-max'>
+              {[
+                {
+                  key: 'stock',
+                  value: 'outOfStock',
+                  label: `Esgotados (${facets.stock.outOfStock})`,
+                },
+                {
+                  key: 'stock',
+                  value: 'lowStock',
+                  label: `Estoque baixo (${facets.stock.lowStock})`,
+                },
+                {
+                  key: 'status',
+                  value: 'incomplete',
+                  label: `Incompletos (${facets.status.incomplete})`,
+                },
+                {
+                  key: 'status',
+                  value: 'partial',
+                  label: `Parciais (${facets.status.partial})`,
+                },
+                {
+                  key: 'channel',
+                  value: 'online',
+                  label: `No site (${facets.channel.online})`,
+                },
+              ].map(chip => {
+                const active = searchParams
+                  .getAll(chip.key)
+                  .includes(chip.value);
+                return (
+                  <button
+                    key={chip.key + chip.value}
+                    type='button'
+                    onClick={() => toggleFilter(chip.key, chip.value)}
+                    className='whitespace-nowrap rounded-full text-sm font-medium border'
+                    style={{
+                      padding: '7px 14px',
+                      background: active ? '#FF6600' : '#fff',
+                      color: active ? '#fff' : '#374151',
+                      borderColor: active ? '#FF6600' : '#E5E7EB',
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {activeFiltersCount > 0 && (
           <div className='flex items-center gap-2 text-sm'>
@@ -443,10 +521,21 @@ export default function AdminProdutosPage() {
       {/* GRID: SIDEBAR + TABLE */}
       <div className='grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4'>
         {/* SIDEBAR FILTERS */}
-        <aside className='bg-white rounded-lg shadow-sm p-4 h-fit lg:sticky lg:top-4'>
-          <h2 className='text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide'>
-            Filtros
-          </h2>
+        <aside
+          className={`${filtersOpen ? 'block' : 'hidden'} lg:block bg-white rounded-lg shadow-sm p-4 h-fit lg:sticky lg:top-4`}
+        >
+          <div className='flex items-center justify-between mb-3'>
+            <h2 className='text-sm font-bold text-gray-700 uppercase tracking-wide'>
+              Filtros
+            </h2>
+            <button
+              type='button'
+              onClick={() => setFiltersOpen(false)}
+              className='lg:hidden text-sm font-medium text-[#FF6600]'
+            >
+              Ver resultados
+            </button>
+          </div>
 
           {/* STATUS */}
           {facets && (
@@ -613,7 +702,7 @@ export default function AdminProdutosPage() {
             <>
               {/* BULK ACTIONS BAR */}
               {selected.size > 0 && (
-                <div className='bg-gray-900 text-white p-3 flex items-center gap-3 flex-wrap'>
+                <div className='bg-gray-900 text-white p-3 flex items-center gap-2 sm:gap-3 flex-wrap'>
                   <span className='text-sm font-medium'>
                     {selected.size} selecionado{selected.size !== 1 && 's'}
                   </span>
@@ -661,7 +750,35 @@ export default function AdminProdutosPage() {
                 </div>
               )}
 
-              <div className='overflow-x-auto'>
+              {/* MOBILE — cards */}
+              <div className='md:hidden'>
+                <label className='flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50 text-xs text-gray-500'>
+                  <input
+                    type='checkbox'
+                    checked={
+                      products.length > 0 && selected.size === products.length
+                    }
+                    onChange={toggleSelectAll}
+                    className='w-4 h-4 rounded'
+                  />
+                  Selecionar todos da página
+                </label>
+                <ul className='divide-y divide-gray-100'>
+                  {products.map(p => (
+                    <li key={p._id}>
+                      <ProductCard
+                        product={p}
+                        checked={selected.has(p._id)}
+                        onToggle={() => toggleSelect(p._id)}
+                        statusBadge={statusBadge(p.completionStatus)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* DESKTOP — tabela */}
+              <div className='hidden md:block overflow-x-auto'>
                 <table className='w-full text-sm'>
                   <thead className='bg-gray-50 border-b'>
                     <tr>
@@ -857,8 +974,8 @@ export default function AdminProdutosPage() {
 
               {/* PAGINATION */}
               {pagination.pages > 1 && (
-                <div className='flex items-center justify-between p-4 border-t bg-gray-50'>
-                  <p className='text-sm text-gray-500'>
+                <div className='flex items-center justify-between gap-2 p-3 sm:p-4 border-t bg-gray-50'>
+                  <p className='text-xs sm:text-sm text-gray-500'>
                     {pagination.total} produto{pagination.total !== 1 && 's'} ·
                     Página {pagination.page} de {pagination.pages}
                   </p>
@@ -866,14 +983,14 @@ export default function AdminProdutosPage() {
                     <button
                       onClick={() => goToPage(pagination.page - 1)}
                       disabled={pagination.page <= 1}
-                      className='p-2 border rounded-md hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed'
+                      className='p-2.5 border rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
                     >
                       <ChevronLeft size={16} />
                     </button>
                     <button
                       onClick={() => goToPage(pagination.page + 1)}
                       disabled={pagination.page >= pagination.pages}
-                      className='p-2 border rounded-md hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed'
+                      className='p-2.5 border rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
                     >
                       <ChevronRight size={16} />
                     </button>
@@ -921,5 +1038,103 @@ function FilterCheckbox({
       </div>
       <span className='text-xs text-gray-400 flex-shrink-0'>{count}</span>
     </label>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MOBILE — card de produto (toque abre a edição)
+// ═══════════════════════════════════════════════════════════════
+
+function ProductCard({
+  product: p,
+  checked,
+  onToggle,
+  statusBadge,
+}: {
+  product: ProductItem;
+  checked: boolean;
+  onToggle: () => void;
+  statusBadge: React.ReactNode;
+}) {
+  const stockStyle =
+    p.stock === 0
+      ? { background: '#FEF2F2', color: '#DC2626' }
+      : p.stock <= 3
+        ? { background: '#FFF7ED', color: '#EA580C' }
+        : { background: '#F0FDF4', color: '#15803D' };
+
+  return (
+    <div
+      className='flex items-center gap-3 px-4 py-3'
+      style={{ background: checked ? '#EFF6FF' : undefined }}
+    >
+      <input
+        type='checkbox'
+        checked={checked}
+        onChange={onToggle}
+        className='w-5 h-5 rounded shrink-0'
+        aria-label={`Selecionar ${p.name}`}
+      />
+      <Link
+        href={`/admin/produtos/${p._id}`}
+        className='flex items-center gap-3 flex-1 min-w-0'
+      >
+        {p.images[0] ? (
+          <Image
+            src={p.images[0]}
+            alt={p.name}
+            width={56}
+            height={56}
+            className='rounded-lg object-cover shrink-0'
+            style={{ width: 56, height: 56 }}
+          />
+        ) : (
+          <div
+            className='bg-gray-100 rounded-lg flex items-center justify-center shrink-0'
+            style={{ width: 56, height: 56 }}
+          >
+            <Package size={18} className='text-gray-400' />
+          </div>
+        )}
+        <div className='flex-1 min-w-0'>
+          <p className='text-sm font-medium text-gray-900 line-clamp-2 leading-snug'>
+            {p.name}
+          </p>
+          <p className='text-[11px] text-gray-400 font-mono truncate'>
+            {p.sku}
+            {p.brand && ` · ${p.brand.name}`}
+          </p>
+          <div className='flex items-center gap-1 mt-1 flex-wrap'>
+            {statusBadge}
+            {p.isAvailableInStore && (
+              <span className='inline-flex items-center text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded'>
+                <Store size={10} />
+              </span>
+            )}
+            {p.isPublishedOnline && (
+              <span className='inline-flex items-center text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded'>
+                <Globe size={10} />
+              </span>
+            )}
+            {!p.isActive && (
+              <span className='inline-flex items-center text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded'>
+                <EyeOff size={10} />
+              </span>
+            )}
+          </div>
+        </div>
+        <div className='text-right shrink-0'>
+          <p className='text-sm font-bold text-gray-900'>
+            {formatPrice(p.price)}
+          </p>
+          <span
+            className='inline-block text-xs font-bold rounded mt-1'
+            style={{ ...stockStyle, padding: '2px 8px' }}
+          >
+            {p.stock} un
+          </span>
+        </div>
+      </Link>
+    </div>
   );
 }

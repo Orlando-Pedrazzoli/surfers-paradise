@@ -55,6 +55,17 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Cancelado', color: 'bg-red-100 text-red-700' },
 };
 
+// Atalhos de status (ordem = fluxo operacional)
+const STATUS_CHIPS: { value: string; label: string }[] = [
+  { value: '', label: 'Todos' },
+  { value: 'confirmed', label: '📦 A preparar' },
+  { value: 'processing', label: 'Preparando' },
+  { value: 'shipped', label: 'Enviados' },
+  { value: 'pending', label: 'Aguardando pgto' },
+  { value: 'delivered', label: 'Finalizados' },
+  { value: 'cancelled', label: 'Cancelados' },
+];
+
 const PAYMENT_LABELS: Record<string, string> = {
   credit_card: 'Crédito',
   debit_card: 'Débito',
@@ -167,10 +178,10 @@ export default function AdminPedidosPage() {
 
   return (
     <div>
-      <div className='flex items-center justify-between mb-6 flex-wrap gap-3'>
+      <div className='flex items-center justify-between mb-4 lg:mb-6 flex-wrap gap-3'>
         <div>
-          <h1 className='text-2xl font-bold'>Pedidos</h1>
-          <p className='text-sm text-gray-500 mt-1'>
+          <h1 className='hidden lg:block text-2xl font-bold'>Pedidos</h1>
+          <p className='text-sm text-gray-500 lg:mt-1'>
             {pagination.total} pedido{pagination.total !== 1 && 's'} no total
           </p>
         </div>
@@ -192,7 +203,7 @@ export default function AdminPedidosPage() {
             type='text'
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
-            placeholder='Buscar por número do pedido, nome, CPF ou e-mail...'
+            placeholder='Nº do pedido, nome, CPF ou e-mail'
             className='w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
           />
         </div>
@@ -203,6 +214,33 @@ export default function AdminPedidosPage() {
           Buscar
         </button>
       </form>
+
+      {/* STATUS — chips roláveis (mobile-first) */}
+      <div className='admin-scroll-x -mx-3 px-3 sm:mx-0 sm:px-0 mb-3'>
+        <div className='flex gap-2 w-max'>
+          {STATUS_CHIPS.map(chip => {
+            const active = filters.status === chip.value;
+            return (
+              <button
+                key={chip.value || 'all'}
+                type='button'
+                onClick={() =>
+                  updateURL({ status: chip.value || null, page: null })
+                }
+                className='whitespace-nowrap rounded-full text-sm font-medium border transition-colors'
+                style={{
+                  padding: '7px 14px',
+                  background: active ? '#FF6600' : '#fff',
+                  color: active ? '#fff' : '#374151',
+                  borderColor: active ? '#FF6600' : '#E5E7EB',
+                }}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* FILTROS HORIZONTAIS */}
       <div className='bg-white rounded-lg shadow-sm p-3 mb-4 flex items-center gap-3 flex-wrap'>
@@ -218,22 +256,6 @@ export default function AdminPedidosPage() {
           <option value=''>Todos os canais</option>
           <option value='pos'>🏪 Balcão (POS)</option>
           <option value='online'>🌐 Online (Site)</option>
-        </select>
-
-        <select
-          value={filters.status}
-          onChange={e =>
-            updateURL({ status: e.target.value || null, page: null })
-          }
-          className='text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
-        >
-          <option value=''>Todos os status</option>
-          <option value='pending'>Aguardando</option>
-          <option value='confirmed'>Confirmado</option>
-          <option value='processing'>Preparando</option>
-          <option value='shipped'>Enviado</option>
-          <option value='delivered'>Finalizado</option>
-          <option value='cancelled'>Cancelado</option>
         </select>
 
         {activeFiltersCount > 0 && (
@@ -268,7 +290,17 @@ export default function AdminPedidosPage() {
           </div>
         ) : (
           <>
-            <div className='overflow-x-auto'>
+            {/* MOBILE — cards */}
+            <ul className='md:hidden divide-y divide-gray-100'>
+              {orders.map(o => (
+                <li key={o._id}>
+                  <OrderCard order={o} />
+                </li>
+              ))}
+            </ul>
+
+            {/* DESKTOP — tabela */}
+            <div className='hidden md:block overflow-x-auto'>
               <table className='w-full text-sm'>
                 <thead className='bg-gray-50 border-b'>
                   <tr>
@@ -408,7 +440,7 @@ export default function AdminPedidosPage() {
             </div>
 
             {pagination.pages > 1 && (
-              <div className='flex items-center justify-between p-4 border-t bg-gray-50'>
+              <div className='flex items-center justify-between p-3 sm:p-4 border-t bg-gray-50'>
                 <p className='text-sm text-gray-500'>
                   Página {pagination.page} de {pagination.pages}
                 </p>
@@ -418,7 +450,7 @@ export default function AdminPedidosPage() {
                       updateURL({ page: (pagination.page - 1).toString() })
                     }
                     disabled={pagination.page <= 1}
-                    className='p-2 border rounded-md hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    className='p-2.5 border rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
                   >
                     <ChevronLeft size={16} />
                   </button>
@@ -427,7 +459,7 @@ export default function AdminPedidosPage() {
                       updateURL({ page: (pagination.page + 1).toString() })
                     }
                     disabled={pagination.page >= pagination.pages}
-                    className='p-2 border rounded-md hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    className='p-2.5 border rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed'
                   >
                     <ChevronRight size={16} />
                   </button>
@@ -438,5 +470,91 @@ export default function AdminPedidosPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MOBILE — card de pedido (toque abre o detalhe)
+// ═══════════════════════════════════════════════════════════════
+
+function PaymentLine({ payment }: { payment: OrderListItem['payment'] }) {
+  const method = PAYMENT_LABELS[payment.method] || payment.method;
+  const st =
+    payment.status === 'paid'
+      ? { t: '✓ Pago', c: 'text-green-600' }
+      : payment.status === 'pending'
+        ? { t: 'Aguardando', c: 'text-yellow-600' }
+        : payment.status === 'refunded'
+          ? { t: 'Estornado', c: 'text-purple-600' }
+          : payment.status === 'failed'
+            ? { t: 'Recusado', c: 'text-red-600' }
+            : null;
+  return (
+    <span className='text-xs text-gray-500'>
+      {method}
+      {st && <span className={`font-medium ${st.c}`}> · {st.t}</span>}
+    </span>
+  );
+}
+
+function OrderCard({ order: o }: { order: OrderListItem }) {
+  const statusCfg = STATUS_LABELS[o.status] || {
+    label: o.status,
+    color: 'bg-gray-100 text-gray-600',
+  };
+  const itemsCount = o.items.reduce((s, i) => s + i.quantity, 0);
+  const firstItems = o.items
+    .slice(0, 2)
+    .map(i => `${i.quantity}× ${i.name}`)
+    .join(' · ');
+
+  return (
+    <Link
+      href={`/admin/pedidos/${o._id}`}
+      className='flex items-start gap-3 p-4 active:bg-gray-50'
+    >
+      <div className='flex-1 min-w-0'>
+        <div className='flex items-center gap-2 flex-wrap'>
+          <span className='font-mono text-sm font-bold text-[#FF6600]'>
+            {o.orderNumber}
+          </span>
+          <span
+            className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusCfg.color}`}
+          >
+            {statusCfg.label}
+          </span>
+          {o.channel === 'pos' ? (
+            <Store size={13} className='text-orange-600' aria-label='Balcão' />
+          ) : (
+            <Globe size={13} className='text-blue-600' aria-label='Site' />
+          )}
+        </div>
+        <p className='font-medium text-gray-900 truncate mt-1'>
+          {o.customerSnapshot?.name || 'Consumidor'}
+        </p>
+        <p className='text-xs text-gray-500 truncate'>
+          {firstItems}
+          {o.items.length > 2 && ` +${o.items.length - 2}`}
+        </p>
+        <div className='flex items-center gap-2 mt-1'>
+          <PaymentLine payment={o.payment} />
+        </div>
+      </div>
+      <div className='text-right shrink-0'>
+        <p className='font-bold text-gray-900'>{formatPrice(o.total)}</p>
+        <p className='text-[11px] text-gray-400 mt-0.5'>
+          {itemsCount} ite{itemsCount !== 1 ? 'ns' : 'm'}
+        </p>
+        <p className='text-[11px] text-gray-400'>
+          {new Date(o.createdAt).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+        <ChevronRight size={16} className='text-gray-300 ml-auto mt-1' />
+      </div>
+    </Link>
   );
 }

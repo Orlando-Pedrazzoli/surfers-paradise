@@ -1,41 +1,20 @@
+// src/components/admin/AdminSidebar.tsx
+// v2 (mobile): sidebar só aparece em desktop (lg+). No celular a navegação
+//     é feita pela <AdminBottomNav /> (barra fixa inferior tipo app).
+//     Itens de menu centralizados em adminNav.ts.
 'use client';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import {
-  LayoutDashboard,
-  ShoppingCart,
-  Receipt,
-  DollarSign,
-  BarChart3,
-  Package,
-  FolderTree,
-  Tags,
-  Truck,
-  Ticket,
-  Image as ImageIcon,
-  LogOut,
-  ExternalLink,
-} from 'lucide-react';
+import { LogOut, ExternalLink } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils/cn';
-const menuItems = [
-  { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-  { label: 'POS Balcão', href: '/pos', icon: ShoppingCart },
-  { label: 'Pedidos', href: '/admin/pedidos', icon: Receipt },
-  { label: 'Caixa', href: '/admin/caixa', icon: DollarSign },
-  { label: 'Relatórios', href: '/admin/relatorios', icon: BarChart3 },
-  { label: 'Produtos', href: '/admin/produtos', icon: Package },
-  { label: 'Categorias', href: '/admin/categorias', icon: FolderTree },
-  { label: 'Marcas', href: '/admin/marcas', icon: Tags },
-  { label: 'Fornecedores', href: '/admin/fornecedores', icon: Truck },
-  { label: 'Cupons', href: '/admin/cupons', icon: Ticket },
-  { label: 'Banners', href: '/admin/configuracoes', icon: ImageIcon },
-];
+import { ADMIN_MENU, isNavActive } from './adminNav';
+
 export default function AdminSidebar() {
   const pathname = usePathname();
   return (
-    <aside className='w-64 min-h-screen bg-[#1A1A1A] text-white flex flex-col'>
+    <aside className='hidden lg:flex w-64 shrink-0 h-screen sticky top-0 bg-[#1A1A1A] text-white flex-col'>
       <div className='px-5 py-5 border-b border-white/10'>
         <Link href='/admin' className='flex items-center gap-3'>
           <Image
@@ -56,10 +35,8 @@ export default function AdminSidebar() {
         </Link>
       </div>
       <nav className='flex-1 py-3 overflow-y-auto'>
-        {menuItems.map(item => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== '/admin' && pathname.startsWith(item.href));
+        {ADMIN_MENU.map(item => {
+          const isActive = isNavActive(pathname, item.href);
           return (
             <Link
               key={item.href}

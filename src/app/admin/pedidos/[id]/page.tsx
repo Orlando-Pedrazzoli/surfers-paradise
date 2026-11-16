@@ -2,6 +2,10 @@
 // v7: RETIRADA NA LOJA — pedidos com shipping.carrier === 'Retirada na Loja'
 //     mostram aviso operacional (não gerar etiqueta), título "Retirada na
 //     Loja Física" no card de endereço e ocultam o card de Rastreio.
+// v9: MOBILE — card de ação rápida no topo (só < lg): status atual,
+//     botão "próximo passo" (confirmado → preparando → enviado → entregue)
+//     e contato com o cliente (WhatsApp / ligar / e-mail). Botões de
+//     cancelar e imprimir com alvo de toque maior.
 // v8: ETIQUETA MELHOR ENVIO — card <ShippingLabel /> acima do Rastreio
 //     (cotação, geração com saldo da carteira, impressão do PDF e
 //     cancelamento). onUpdated recarrega o pedido para refletir status e
@@ -27,6 +31,10 @@ import {
   Loader2,
   Save,
   Receipt,
+  Phone,
+  Mail,
+  MessageCircle,
+  ArrowRight,
 } from 'lucide-react';
 import ShippingLabel from '@/components/admin/ShippingLabel';
 
@@ -144,6 +152,30 @@ function formatPrice(value: number): string {
     style: 'currency',
     currency: 'BRL',
   }).format(value);
+}
+
+// Próximo passo operacional a partir do status atual (pedidos online)
+function getNextStep(
+  status: string,
+  isPickup: boolean,
+): { status: string; label: string } | null {
+  if (status === 'confirmed')
+    return { status: 'processing', label: 'Começar a preparar' };
+  if (status === 'processing')
+    return isPickup
+      ? { status: 'delivered', label: 'Marcar como retirado' }
+      : { status: 'shipped', label: 'Marcar como enviado' };
+  if (status === 'shipped')
+    return { status: 'delivered', label: 'Marcar como entregue' };
+  return null;
+}
+
+// Telefone BR → link wa.me (adiciona DDI 55 quando faltar)
+function whatsappLink(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  const full = digits.length <= 11 ? `55${digits}` : digits;
+  return `https://wa.me/${full}`;
 }
 
 function formatDateTime(date?: string): string {
@@ -318,10 +350,18 @@ export default function AdminOrderDetailPage({
   // não gerar etiqueta nem código de rastreio.
   const isPickup = order.shipping?.carrier === 'Retirada na Loja';
 
+  // v9: ação rápida + contato (mobile)
+  const nextStep =
+    order.channel === 'online' ? getNextStep(order.status, isPickup) : null;
+  const contactPhone =
+    order.customerSnapshot?.phone || order.shippingAddress?.phone || '';
+  const contactEmail = order.customerSnapshot?.email || order.user?.email || '';
+  const waLink = contactPhone ? whatsappLink(contactPhone) : null;
+
   return (
     <div>
       {/* HEADER */}
-      <div className='mb-6'>
+      <div className='mb-4 lg:mb-6'>
         <Link
           href='/admin/pedidos'
           className='inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3'
@@ -332,7 +372,7 @@ export default function AdminOrderDetailPage({
         <div className='flex items-start justify-between flex-wrap gap-3'>
           <div>
             <div className='flex items-center gap-3 flex-wrap'>
-              <h1 className='text-2xl font-bold font-mono'>
+              <h1 className='text-xl lg:text-2xl font-bold font-mono'>
                 {order.orderNumber}
               </h1>
               {order.channel === 'pos' ? (
@@ -363,7 +403,7 @@ export default function AdminOrderDetailPage({
               <button
                 onClick={handleCancel}
                 disabled={saving}
-                className='flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm'
+                className='hidden lg:flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm'
               >
                 <XCircle size={16} />
                 Cancelar Pedido
@@ -371,6 +411,110 @@ export default function AdminOrderDetailPage({
             )}
           </div>
         </div>
+      </div>
+
+      {/* MOBILE — AÇÕES RÁPIDAS */}
+      <div className='lg:hidden bg-white rounded-xl shadow-sm p-4 mb-4 space-y-3'>
+        <div className='flex items-center justify-between gap-3'>
+          <div className='min-w-0'>
+            <p className='text-[11px] uppercase tracking-wide text-gray-400'>
+              Total
+            </p>
+            <p className='text-xl font-bold text-gray-900'>
+              {formatPrice(order.total)}
+            </p>
+          </div>
+          <div className='text-right min-w-0'>
+            <p className='text-[11px] uppercase tracking-wide text-gray-400'>
+              Pagamento
+            </p>
+            <p className='text-sm font-medium text-gray-800 truncate'>
+              {PAYMENT_LABELS[order.payment.method] || order.payment.method}
+              {order.payment.status === 'paid' && (
+                <span className='text-green-600'> ✓</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {nextStep && (
+          <button
+            type='button'
+            onClick={() => handleStatusChange(nextStep.status)}
+            disabled={saving}
+            className='w-full flex items-center justify-center gap-2 rounded-lg text-white font-semibold disabled:opacity-50'
+            style={{ background: '#FF6600', padding: '13px 16px' }}
+          >
+            {saving ? (
+              <Loader2 size={18} className='animate-spin' />
+            ) : (
+              <ArrowRight size={18} />
+            )}
+            {nextStep.label}
+          </button>
+        )}
+        {order.status === 'pending' && order.channel === 'online' && (
+          <p className='text-xs text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2'>
+            Aguardando confirmação do pagamento. O pedido muda para
+            &quot;Confirmado&quot; automaticamente quando o pagamento for
+            aprovado.
+          </p>
+        )}
+
+        {(contactPhone || contactEmail) && (
+          <div className='grid grid-cols-3 gap-2'>
+            {waLink ? (
+              <a
+                href={waLink}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='flex flex-col items-center gap-1 rounded-lg text-xs font-medium'
+                style={{
+                  padding: '10px 4px',
+                  background: '#ECFDF5',
+                  color: '#047857',
+                }}
+              >
+                <MessageCircle size={18} />
+                WhatsApp
+              </a>
+            ) : (
+              <span />
+            )}
+            {contactPhone ? (
+              <a
+                href={`tel:${contactPhone.replace(/[^\d+]/g, '')}`}
+                className='flex flex-col items-center gap-1 rounded-lg text-xs font-medium'
+                style={{
+                  padding: '10px 4px',
+                  background: '#EFF6FF',
+                  color: '#1D4ED8',
+                }}
+              >
+                <Phone size={18} />
+                Ligar
+              </a>
+            ) : (
+              <span />
+            )}
+            {contactEmail ? (
+              <a
+                href={`mailto:${contactEmail}?subject=${encodeURIComponent(`Pedido ${order.orderNumber}`)}`}
+                className='flex flex-col items-center gap-1 rounded-lg text-xs font-medium'
+                style={{
+                  padding: '10px 4px',
+                  background: '#F3F4F6',
+                  color: '#374151',
+                }}
+              >
+                <Mail size={18} />
+                E-mail
+              </a>
+            ) : (
+              <span />
+            )}
+          </div>
+        )}
       </div>
 
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-4'>
@@ -391,7 +535,7 @@ export default function AdminOrderDetailPage({
                       alt={item.name}
                       width={48}
                       height={48}
-                      className='rounded object-cover'
+                      className='rounded object-cover shrink-0'
                     />
                   ) : (
                     <div className='w-12 h-12 bg-gray-100 rounded flex items-center justify-center'>
@@ -399,7 +543,7 @@ export default function AdminOrderDetailPage({
                     </div>
                   )}
                   <div className='flex-1 min-w-0'>
-                    <p className='font-medium text-gray-900 line-clamp-1'>
+                    <p className='font-medium text-gray-900 line-clamp-2 lg:line-clamp-1 text-sm lg:text-base'>
                       {item.name}
                     </p>
                     <p className='text-xs text-gray-400 font-mono'>
@@ -407,7 +551,7 @@ export default function AdminOrderDetailPage({
                       {formatPrice(item.price)}
                     </p>
                   </div>
-                  <p className='font-bold text-gray-900'>
+                  <p className='font-bold text-gray-900 shrink-0'>
                     {formatPrice(item.price * item.quantity)}
                   </p>
                 </div>
@@ -531,7 +675,7 @@ export default function AdminOrderDetailPage({
                 value={order.status}
                 onChange={e => handleStatusChange(e.target.value)}
                 disabled={saving}
-                className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] text-sm'
+                className='w-full px-3 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600] text-sm bg-white'
               >
                 {order.channel === 'online' && (
                   <>
@@ -549,7 +693,7 @@ export default function AdminOrderDetailPage({
                   </>
                 )}
               </select>
-              <p className='text-xs text-gray-400 mt-2'>
+              <p className='hidden lg:block text-xs text-gray-400 mt-2'>
                 Para cancelar, use o botão vermelho no topo.
               </p>
             </div>
@@ -729,7 +873,7 @@ export default function AdminOrderDetailPage({
             <Link
               href={`/admin/pedidos/${id}/cupom?format=80mm`}
               target='_blank'
-              className='w-full bg-gray-900 text-white py-2 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-800 transition-colors'
+              className='w-full bg-gray-900 text-white py-3 lg:py-2 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-800 transition-colors'
             >
               <Receipt size={16} />
               Cupom 80mm (Térmica)
@@ -737,11 +881,22 @@ export default function AdminOrderDetailPage({
             <Link
               href={`/admin/pedidos/${id}/cupom?format=a4`}
               target='_blank'
-              className='w-full bg-gray-200 text-gray-700 py-2 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-300 transition-colors'
+              className='w-full bg-gray-200 text-gray-700 py-3 lg:py-2 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-300 transition-colors'
             >
               <Receipt size={16} />
               Cupom A4
             </Link>
+            {canCancel && (
+              <button
+                type='button'
+                onClick={handleCancel}
+                disabled={saving}
+                className='lg:hidden w-full py-3 rounded-md flex items-center justify-center gap-2 text-sm font-medium border border-red-200 text-red-600 bg-white disabled:opacity-50'
+              >
+                <XCircle size={16} />
+                Cancelar pedido
+              </button>
+            )}
           </div>
         </div>
       </div>

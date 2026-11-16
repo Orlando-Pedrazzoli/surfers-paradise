@@ -875,16 +875,16 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
 
   return (
     <div>
-      <div className='flex items-center justify-between mb-6'>
+      <div className='hidden lg:flex items-center justify-between mb-6'>
         <h1 className='text-2xl font-bold'>
           {isEdit ? 'Editar Produto' : 'Novo Produto'}
         </h1>
       </div>
 
-      <form onSubmit={handleSubmit} className='space-y-6'>
+      <form onSubmit={handleSubmit} className='space-y-4 sm:space-y-6'>
         {/* STATUS */}
         <div
-          className={`rounded-lg shadow-sm p-6 border-2 ${currentStatus.bg} ${currentStatus.border}`}
+          className={`rounded-lg shadow-sm p-4 sm:p-6 border-2 ${currentStatus.bg} ${currentStatus.border}`}
         >
           <div className='flex items-start justify-between gap-4 flex-wrap'>
             <div>
@@ -927,7 +927,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* CANAIS DE VENDA */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-1'>Canais de Venda</h2>
           <p className='text-sm text-gray-500 mb-4'>
             Define onde este produto está disponível para venda.
@@ -1006,7 +1006,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* INFORMAÇÕES BÁSICAS */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>Informações Básicas</h2>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
             <div className='md:col-span-2'>
@@ -1082,7 +1082,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* PREÇOS */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>Preços</h2>
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
             <div>
@@ -1095,6 +1095,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 </span>
                 <input
                   type='number'
+                  inputMode='decimal'
                   step='0.01'
                   min='0'
                   value={form.price || ''}
@@ -1128,6 +1129,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 </span>
                 <input
                   type='number'
+                  inputMode='decimal'
                   step='0.01'
                   min='0'
                   value={form.compareAtPrice || ''}
@@ -1154,6 +1156,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 </span>
                 <input
                   type='number'
+                  inputMode='decimal'
                   step='0.01'
                   min='0'
                   value={form.costPrice || ''}
@@ -1214,7 +1217,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* MARCADORES ESPECIAIS (logo abaixo de Preços — inclui promoção) */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>Marcadores Especiais</h2>
           <div className='flex flex-wrap gap-6'>
             <label className='flex items-center gap-2 text-sm'>
@@ -1264,6 +1267,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                 </label>
                 <input
                   type='number'
+                  inputMode='numeric'
                   min='0'
                   max='100'
                   value={form.salePercentage || ''}
@@ -1303,7 +1307,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* CLASSIFICAÇÃO */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>Classificação</h2>
           <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
             <div>
@@ -1447,7 +1451,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
             ATRIBUTOS DE QUILHA (condicional)
             ═══════════════════════════════════════════════════════ */}
         {isQuilha && (
-          <div className='bg-white rounded-lg shadow-sm p-6 border-l-4 border-[#FF6600]'>
+          <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6 border-l-4 border-[#FF6600]'>
             <h2 className='text-lg font-semibold mb-1'>
               Atributos de Quilha 🏄
             </h2>
@@ -1535,7 +1539,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
             ATRIBUTOS DE WETSUIT (condicional)
             ═══════════════════════════════════════════════════════ */}
         {isWetsuit && (
-          <div className='bg-white rounded-lg shadow-sm p-6 border-l-4 border-[#FF6600]'>
+          <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6 border-l-4 border-[#FF6600]'>
             <h2 className='text-lg font-semibold mb-1'>
               Atributos de Wetsuit 🌊
             </h2>
@@ -1667,7 +1671,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         )}
 
         {/* IMAGENS */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-1'>Imagens</h2>
           <p className='text-sm text-gray-500 mb-4'>
             Arraste para reordenar. A primeira imagem será a thumbnail.
@@ -1745,7 +1749,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* ESTOQUE & ENVIO */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>Estoque & Envio</h2>
           <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
             <div>
@@ -1754,6 +1758,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </label>
               <input
                 type='number'
+                inputMode='numeric'
                 min='0'
                 value={form.stock || ''}
                 onChange={e =>
@@ -1769,6 +1774,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </label>
               <input
                 type='number'
+                inputMode='numeric'
                 min='0'
                 value={form.weight || ''}
                 onChange={e =>
@@ -1783,6 +1789,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </label>
               <input
                 type='number'
+                inputMode='numeric'
                 min='0'
                 value={form.dimensions.length || ''}
                 onChange={e =>
@@ -1803,6 +1810,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </label>
               <input
                 type='number'
+                inputMode='numeric'
                 min='0'
                 value={form.dimensions.width || ''}
                 onChange={e =>
@@ -1823,6 +1831,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               </label>
               <input
                 type='number'
+                inputMode='numeric'
                 min='0'
                 value={form.dimensions.height || ''}
                 onChange={e =>
@@ -1841,7 +1850,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* FAMÍLIA DE PRODUTOS */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-2'>
             Família de Produtos (Variantes)
           </h2>
@@ -1983,7 +1992,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                             type='text'
                             value={colorCode}
                             onChange={e => setColorCode(e.target.value)}
-                            className='flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                            className='flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                           />
                         </div>
                       </div>
@@ -2002,7 +2011,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                             type='text'
                             value={colorCode2}
                             onChange={e => setColorCode2(e.target.value)}
-                            className='flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                            className='flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
                           />
                         </div>
                       </div>
@@ -2135,7 +2144,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* FISCAL */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-1'>Fiscal & Fornecedor</h2>
           <p className='text-sm text-gray-500 mb-4'>
             Dados fiscais (NF-e) e fornecedor. Todos os campos são opcionais.
@@ -2251,7 +2260,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* SEO */}
-        <div className='bg-white rounded-lg shadow-sm p-6'>
+        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-4'>SEO</h2>
           <div className='grid grid-cols-1 gap-4'>
             <div>
@@ -2284,11 +2293,11 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* BOTÕES */}
-        <div className='flex gap-3 sticky bottom-0 bg-white p-4 -mx-6 border-t shadow-lg z-10'>
+        <div className='admin-sticky-actions flex gap-2 sm:gap-3 bg-white p-3 sm:p-4 -mx-3 sm:-mx-4 lg:-mx-6 border-t shadow-lg z-10'>
           <button
             type='submit'
             disabled={saving}
-            className='px-6 py-2.5 bg-[#FF6600] text-white font-medium rounded-md hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+            className='flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-2.5 bg-[#FF6600] text-white font-medium rounded-md hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
           >
             {saving
               ? 'Salvando...'
@@ -2299,11 +2308,11 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           <button
             type='button'
             onClick={() => router.push('/admin/produtos')}
-            className='px-6 py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors'
+            className='px-4 sm:px-6 py-3 sm:py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors'
           >
             Cancelar
           </button>
-          <div className='flex-1 flex items-center justify-end gap-2 text-sm text-gray-500'>
+          <div className='hidden sm:flex flex-1 items-center justify-end gap-2 text-sm text-gray-500'>
             {completion.status === 'complete' && (
               <span className='flex items-center gap-1.5 text-green-700'>
                 <CheckCircle2 size={16} />
