@@ -64,7 +64,7 @@ export default function AdminSidebar() {
           Ver Loja
         </Link>
         <button
-          onClick={() => signOut({ callbackUrl: '/admin-login' })}
+          onClick={() => signOut({ callbackUrl: '/' })}
           className='flex items-center gap-3 px-3 py-2 text-sm text-gray-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors w-full'
         >
           <LogOut size={16} />

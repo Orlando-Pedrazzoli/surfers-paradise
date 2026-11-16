@@ -40,8 +40,12 @@ export function proxy(request: NextRequest) {
   // Admin routes — check for auth cookie
   // (prefixo exato: /admin-login NÃO pode cair aqui, senão entra em loop)
   const isAdminRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+  // Login único: o admin entra pelo /login da loja (área do cliente) e é
+  // levado ao painel. Em manutenção o /login fica fechado, então usa-se
+  // o /admin-login (link no rodapé da página "em construção").
   if (isAdminRoute && !hasSessionToken(request)) {
-    return NextResponse.redirect(new URL('/admin-login', request.url));
+    const loginPath = MAINTENANCE_MODE ? '/admin-login' : '/login';
+    return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
   // Account routes — check for auth cookie

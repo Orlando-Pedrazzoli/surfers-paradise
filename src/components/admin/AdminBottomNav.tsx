@@ -237,7 +237,7 @@ export default function AdminBottomNav() {
               </Link>
               <button
                 type='button'
-                onClick={() => signOut({ callbackUrl: '/admin-login' })}
+                onClick={() => signOut({ callbackUrl: '/' })}
                 className='w-full flex items-center gap-3 rounded-xl text-red-600 text-sm font-medium'
                 style={{ padding: '12px 14px', background: '#FEF2F2' }}
               >

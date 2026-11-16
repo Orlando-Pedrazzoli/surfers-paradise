@@ -1,4 +1,8 @@
 // src/components/layout/Navbar.tsx
+// v3: ACESSO ADMIN PELA NAVBAR — logado como admin, o ícone de conta vira
+//     "Painel Admin" e leva direto para /admin (o admin não usa a área do
+//     cliente). O ícone de conta/login passa a aparecer também no celular
+//     (antes só a partir de sm), para o admin entrar pelo telefone.
 // v2: CTA "Fale Conosco" — botão laranja preenchido no extremo direito da
 //     barra de categorias (desktop): cor contrastante sobre o fundo escuro,
 //     no caminho natural do olhar, visualmente distinto dos links de
@@ -121,6 +125,9 @@ export default function Navbar() {
 
   const isLoggedIn = !!session?.user;
   const firstName = session?.user?.name?.split(' ')[0] || '';
+  const isAdmin =
+    (session?.user as { role?: string } | undefined)?.role === 'admin';
+  const accountHref = isAdmin ? '/admin' : '/minha-conta';
 
   useEffect(() => {
     const fetchCatalog = async () => {
@@ -278,21 +285,25 @@ export default function Navbar() {
             <div className='flex items-center gap-3 sm:gap-5'>
               {isLoggedIn ? (
                 <Link
-                  href='/minha-conta'
-                  className='hidden sm:flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                  href={accountHref}
+                  className='flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                  aria-label={isAdmin ? 'Painel Admin' : 'Minha conta'}
                 >
                   <div className='w-8 h-8 bg-[#FF6600] text-white rounded-full flex items-center justify-center text-xs font-bold'>
                     {firstName.charAt(0).toUpperCase()}
                   </div>
                   <div className='hidden lg:block'>
                     <p className='text-xs text-gray-400'>Olá, {firstName}!</p>
-                    <p className='font-medium text-xs'>MINHA CONTA</p>
+                    <p className='font-medium text-xs'>
+                      {isAdmin ? 'PAINEL ADMIN' : 'MINHA CONTA'}
+                    </p>
                   </div>
                 </Link>
               ) : (
                 <Link
                   href='/login'
-                  className='hidden sm:flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                  className='flex items-center gap-2 text-sm text-gray-600 hover:text-[#FF6600] transition-colors'
+                  aria-label='Entrar'
                 >
                   <User size={20} />
                   <div className='hidden lg:block'>
@@ -436,7 +447,7 @@ export default function Navbar() {
             {isLoggedIn && (
               <div className='p-4 border-b border-gray-100 bg-orange-50'>
                 <Link
-                  href='/minha-conta'
+                  href={accountHref}
                   onClick={() => setMobileMenuOpen(false)}
                   className='flex items-center gap-3'
                 >
@@ -447,7 +458,9 @@ export default function Navbar() {
                     <p className='text-sm font-medium text-gray-900'>
                       Olá, {firstName}!
                     </p>
-                    <p className='text-xs text-[#FF6600]'>Minha Conta</p>
+                    <p className='text-xs text-[#FF6600]'>
+                      {isAdmin ? 'Painel Admin' : 'Minha Conta'}
+                    </p>
                   </div>
                 </Link>
               </div>

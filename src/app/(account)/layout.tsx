@@ -4,6 +4,8 @@ import type { Metadata } from 'next';
 //     login antes de renderizar qualquer página da área do cliente.
 //     (Antes, o visitante deslogado via um spinner eterno: as páginas só
 //     fazem fetch se session?.user existir, e o loading nunca resolvia.)
+// v3: admin não usa a área do cliente — role 'admin' vai direto para
+//     /admin (cobre também o login com Google, que volta para /minha-conta).
 
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/config';
@@ -25,6 +27,9 @@ export default async function AccountLayout({
   const session = await auth();
   if (!session?.user) {
     redirect('/login');
+  }
+  if ((session.user as { role?: string }).role === 'admin') {
+    redirect('/admin');
   }
 
   return (

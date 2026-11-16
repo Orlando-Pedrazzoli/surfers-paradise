@@ -1,4 +1,7 @@
 // 📄 src/app/(auth)/login/page.tsx
+// v4 (ACESSO ADMIN UNIFICADO): login único para clientes e admin. Após o
+//     login, a sessão é lida e o admin (role 'admin') vai direto para
+//     /admin; clientes seguem para /minha-conta.
 // v3 (GAP 3 — Esqueci minha senha): modo recuperação em duas fases, no
 //     padrão do Login.jsx do Elite adaptado ao NextAuth:
 //     1) e-mail → POST /api/otp { action: 'send' } (respostas neutras,
@@ -13,7 +16,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { signIn, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from '@/components/ui/HoverPrefetchLink';
 import Image from 'next/image';
@@ -44,6 +47,17 @@ function GoogleIcon() {
 }
 
 type Mode = 'login' | 'forgot-email' | 'forgot-reset';
+
+// Destino pós-login conforme o perfil: admin → painel; cliente → conta
+async function getPostLoginPath(): Promise<string> {
+  try {
+    const session = await getSession();
+    const role = (session?.user as { role?: string } | undefined)?.role;
+    return role === 'admin' ? '/admin' : '/minha-conta';
+  } catch {
+    return '/minha-conta';
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -97,7 +111,8 @@ export default function LoginPage() {
         }
       } else {
         toast.success('Login efetuado com sucesso!');
-        router.push('/minha-conta');
+        router.push(await getPostLoginPath());
+        router.refresh();
       }
     } catch {
       toast.error('Erro ao fazer login');
@@ -198,7 +213,8 @@ export default function LoginPage() {
         setPassword('');
       } else {
         toast.success('Senha redefinida — você já está logado!');
-        router.push('/minha-conta');
+        router.push(await getPostLoginPath());
+        router.refresh();
       }
     } catch {
       toast.error('Erro ao redefinir a senha.');
