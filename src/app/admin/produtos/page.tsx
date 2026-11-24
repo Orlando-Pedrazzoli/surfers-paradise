@@ -1,6 +1,9 @@
 // src/app/admin/produtos/page.tsx
 // v2 (mobile): lista em cards no celular, atalhos de filtro em chips,
 //     painel de filtros recolhível; tabela mantida em md+.
+// v3: controle de estoque por produto direto na lista — botão "Esgotar"
+//     (zera o estoque, com Desfazer) e edição rápida da quantidade
+//     tocando no número. Vale para a tabela (desktop) e os cards (mobile).
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -25,8 +28,8 @@ import {
   Loader2,
   CheckCircle2,
   Circle,
-  Eye,
   EyeOff,
+  Check,
 } from 'lucide-react';
 
 interface ProductItem {
@@ -100,6 +103,9 @@ export default function AdminProdutosPage() {
   // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Estoque: ids com gravação em curso (bloqueia o controle da linha)
+  const [stockSaving, setStockSaving] = useState<Set<string>>(new Set());
 
   // Mobile: painel de filtros recolhido por padrão
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -342,6 +348,83 @@ export default function AdminProdutosPage() {
       }
     } catch {
       toast.error('Erro ao remover produto');
+    }
+  };
+
+  // Estoque individual — grava a nova quantidade (0 = esgotado).
+  // Atualização otimista; em caso de erro volta ao valor anterior.
+  // (recebe o produto como estava no momento do clique, para o Desfazer
+  // não depender do estado da lista.)
+  const handleSetStock = async (
+    product: Pick<ProductItem, '_id' | 'name' | 'stock'>,
+    newStock: number,
+    opts: { undoable?: boolean } = {},
+  ) => {
+    const id = product._id;
+    const previous = product.stock;
+    const value = Math.max(0, Math.floor(newStock));
+    if (value === previous) return;
+
+    const applyLocal = (stock: number) =>
+      setProducts(list => list.map(p => (p._id === id ? { ...p, stock } : p)));
+    const setSaving = (on: boolean) =>
+      setStockSaving(set => {
+        const next = new Set(set);
+        if (on) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+
+    applyLocal(value);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock: value }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Erro ao gravar');
+
+      fetchFacets();
+
+      if (value === 0 && opts.undoable !== false) {
+        // Esgotar perde a contagem anterior — oferece Desfazer
+        toast(
+          t => (
+            <span className='flex items-center gap-3 text-sm'>
+              <span>
+                <strong>{product.name}</strong> marcado como esgotado
+              </span>
+              <button
+                type='button'
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  handleSetStock(
+                    { _id: id, name: product.name, stock: 0 },
+                    previous,
+                    { undoable: false },
+                  );
+                }}
+                className='font-bold shrink-0'
+                style={{ color: '#FF6600' }}
+              >
+                Desfazer
+              </button>
+            </span>
+          ),
+          { duration: 6000 },
+        );
+      } else {
+        toast.success(`Estoque atualizado: ${value} un`);
+      }
+    } catch (err) {
+      applyLocal(previous);
+      toast.error(
+        err instanceof Error ? err.message : 'Erro ao atualizar estoque',
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -771,6 +854,8 @@ export default function AdminProdutosPage() {
                         checked={selected.has(p._id)}
                         onToggle={() => toggleSelect(p._id)}
                         statusBadge={statusBadge(p.completionStatus)}
+                        stockSaving={stockSaving.has(p._id)}
+                        onSetStock={value => handleSetStock(p, value)}
                       />
                     </li>
                   ))}
@@ -816,12 +901,6 @@ export default function AdminProdutosPage() {
                   <tbody className='divide-y'>
                     {products.map(p => {
                       const isChecked = selected.has(p._id);
-                      const stockColor =
-                        p.stock === 0
-                          ? 'text-red-600 bg-red-50'
-                          : p.stock <= 3
-                            ? 'text-orange-600 bg-orange-50'
-                            : 'text-green-700 bg-green-50';
 
                       return (
                         <tr
@@ -903,12 +982,13 @@ export default function AdminProdutosPage() {
                           </td>
 
                           {/* ESTOQUE */}
-                          <td className='p-3 text-center'>
-                            <span
-                              className={`inline-block font-bold text-sm px-2 py-0.5 rounded ${stockColor}`}
-                            >
-                              {p.stock}
-                            </span>
+                          <td className='p-3'>
+                            <StockControl
+                              stock={p.stock}
+                              saving={stockSaving.has(p._id)}
+                              onSet={value => handleSetStock(p, value)}
+                              layout='column'
+                            />
                           </td>
 
                           {/* STATUS + CANAIS */}
@@ -1050,91 +1130,251 @@ function ProductCard({
   checked,
   onToggle,
   statusBadge,
+  stockSaving,
+  onSetStock,
 }: {
   product: ProductItem;
   checked: boolean;
   onToggle: () => void;
   statusBadge: React.ReactNode;
+  stockSaving: boolean;
+  onSetStock: (value: number) => void;
 }) {
-  const stockStyle =
-    p.stock === 0
-      ? { background: '#FEF2F2', color: '#DC2626' }
-      : p.stock <= 3
-        ? { background: '#FFF7ED', color: '#EA580C' }
-        : { background: '#F0FDF4', color: '#15803D' };
+  return (
+    <div style={{ background: checked ? '#EFF6FF' : undefined }}>
+      <div className='flex items-center gap-3 px-4 pt-3 pb-2'>
+        <input
+          type='checkbox'
+          checked={checked}
+          onChange={onToggle}
+          className='w-5 h-5 rounded shrink-0'
+          aria-label={`Selecionar ${p.name}`}
+        />
+        <Link
+          href={`/admin/produtos/${p._id}`}
+          className='flex items-center gap-3 flex-1 min-w-0'
+        >
+          {p.images[0] ? (
+            <Image
+              src={p.images[0]}
+              alt={p.name}
+              width={56}
+              height={56}
+              className='rounded-lg object-cover shrink-0'
+              style={{ width: 56, height: 56 }}
+            />
+          ) : (
+            <div
+              className='bg-gray-100 rounded-lg flex items-center justify-center shrink-0'
+              style={{ width: 56, height: 56 }}
+            >
+              <Package size={18} className='text-gray-400' />
+            </div>
+          )}
+          <div className='flex-1 min-w-0'>
+            <p className='text-sm font-medium text-gray-900 line-clamp-2 leading-snug'>
+              {p.name}
+            </p>
+            <p className='text-[11px] text-gray-400 font-mono truncate'>
+              {p.sku}
+              {p.brand && ` · ${p.brand.name}`}
+            </p>
+            <div className='flex items-center gap-1 mt-1 flex-wrap'>
+              {statusBadge}
+              {p.isAvailableInStore && (
+                <span className='inline-flex items-center text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded'>
+                  <Store size={10} />
+                </span>
+              )}
+              {p.isPublishedOnline && (
+                <span className='inline-flex items-center text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded'>
+                  <Globe size={10} />
+                </span>
+              )}
+              {!p.isActive && (
+                <span className='inline-flex items-center text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded'>
+                  <EyeOff size={10} />
+                </span>
+              )}
+            </div>
+          </div>
+          <div className='text-right shrink-0'>
+            <p className='text-sm font-bold text-gray-900'>
+              {formatPrice(p.price)}
+            </p>
+          </div>
+        </Link>
+      </div>
+      {/* Estoque — fora do Link para o toque não abrir a edição */}
+      <div
+        className='flex items-center justify-between gap-2'
+        style={{ padding: '0 16px 12px 48px' }}
+      >
+        <span className='text-[11px] text-gray-400 uppercase tracking-wide'>
+          Estoque
+        </span>
+        <StockControl
+          stock={p.stock}
+          saving={stockSaving}
+          onSet={onSetStock}
+          layout='row'
+        />
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPONENT — controle de estoque por produto
+//   · número/“ESGOTADO” clicável → edição rápida da quantidade
+//   · botão “Esgotar” → zera o estoque num toque
+// Estilos críticos inline (Tailwind v4 pode descartar classes em prod).
+// ═══════════════════════════════════════════════════════════════
+
+function StockControl({
+  stock,
+  saving,
+  onSet,
+  layout,
+}: {
+  stock: number;
+  saving: boolean;
+  onSet: (value: number) => void;
+  layout: 'row' | 'column';
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const soldOut = stock <= 0;
+  const badgeStyle = soldOut
+    ? { background: '#FEF2F2', color: '#DC2626' }
+    : stock <= 3
+      ? { background: '#FFF7ED', color: '#EA580C' }
+      : { background: '#F0FDF4', color: '#15803D' };
+
+  const openEditor = () => {
+    setDraft(soldOut ? '' : String(stock));
+    setEditing(true);
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = parseInt(draft, 10);
+    if (Number.isNaN(value) || value < 0) {
+      toast.error('Informe uma quantidade válida (0 ou mais)');
+      return;
+    }
+    setEditing(false);
+    onSet(value);
+  };
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={submit}
+        className='flex items-center justify-center'
+        style={{ gap: 4 }}
+      >
+        <input
+          type='number'
+          inputMode='numeric'
+          min={0}
+          step={1}
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onFocus={e => e.target.select()}
+          onKeyDown={e => {
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          placeholder='Qtd'
+          aria-label='Quantidade em estoque'
+          className='border border-gray-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+          style={{ width: 64, height: 34, fontSize: 16, padding: '0 4px' }}
+        />
+        <button
+          type='submit'
+          aria-label='Gravar estoque'
+          className='rounded flex items-center justify-center'
+          style={{
+            width: 34,
+            height: 34,
+            background: '#FF6600',
+            color: '#fff',
+          }}
+        >
+          <Check size={16} />
+        </button>
+        <button
+          type='button'
+          onClick={() => setEditing(false)}
+          aria-label='Cancelar'
+          className='rounded flex items-center justify-center border border-gray-300 bg-white'
+          style={{ width: 34, height: 34, color: '#6B7280' }}
+        >
+          <X size={16} />
+        </button>
+      </form>
+    );
+  }
 
   return (
     <div
-      className='flex items-center gap-3 px-4 py-3'
-      style={{ background: checked ? '#EFF6FF' : undefined }}
+      className={`flex items-center justify-center ${layout === 'column' ? 'flex-col' : ''}`}
+      style={{ gap: layout === 'column' ? 4 : 8, opacity: saving ? 0.6 : 1 }}
     >
-      <input
-        type='checkbox'
-        checked={checked}
-        onChange={onToggle}
-        className='w-5 h-5 rounded shrink-0'
-        aria-label={`Selecionar ${p.name}`}
-      />
-      <Link
-        href={`/admin/produtos/${p._id}`}
-        className='flex items-center gap-3 flex-1 min-w-0'
+      <button
+        type='button'
+        onClick={openEditor}
+        disabled={saving}
+        title='Clique para alterar a quantidade'
+        className='inline-flex items-center font-bold rounded whitespace-nowrap'
+        style={{
+          ...badgeStyle,
+          gap: 4,
+          fontSize: soldOut ? 11 : 13,
+          padding: '4px 10px',
+          cursor: saving ? 'wait' : 'pointer',
+        }}
       >
-        {p.images[0] ? (
-          <Image
-            src={p.images[0]}
-            alt={p.name}
-            width={56}
-            height={56}
-            className='rounded-lg object-cover shrink-0'
-            style={{ width: 56, height: 56 }}
-          />
-        ) : (
-          <div
-            className='bg-gray-100 rounded-lg flex items-center justify-center shrink-0'
-            style={{ width: 56, height: 56 }}
-          >
-            <Package size={18} className='text-gray-400' />
-          </div>
-        )}
-        <div className='flex-1 min-w-0'>
-          <p className='text-sm font-medium text-gray-900 line-clamp-2 leading-snug'>
-            {p.name}
-          </p>
-          <p className='text-[11px] text-gray-400 font-mono truncate'>
-            {p.sku}
-            {p.brand && ` · ${p.brand.name}`}
-          </p>
-          <div className='flex items-center gap-1 mt-1 flex-wrap'>
-            {statusBadge}
-            {p.isAvailableInStore && (
-              <span className='inline-flex items-center text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded'>
-                <Store size={10} />
-              </span>
-            )}
-            {p.isPublishedOnline && (
-              <span className='inline-flex items-center text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded'>
-                <Globe size={10} />
-              </span>
-            )}
-            {!p.isActive && (
-              <span className='inline-flex items-center text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded'>
-                <EyeOff size={10} />
-              </span>
-            )}
-          </div>
-        </div>
-        <div className='text-right shrink-0'>
-          <p className='text-sm font-bold text-gray-900'>
-            {formatPrice(p.price)}
-          </p>
-          <span
-            className='inline-block text-xs font-bold rounded mt-1'
-            style={{ ...stockStyle, padding: '2px 8px' }}
-          >
-            {p.stock} un
-          </span>
-        </div>
-      </Link>
+        {saving ? (
+          <Loader2 size={12} className='animate-spin' />
+        ) : soldOut ? (
+          <PackageX size={12} />
+        ) : null}
+        {soldOut ? 'ESGOTADO' : `${stock} un`}
+      </button>
+
+      {soldOut ? (
+        <button
+          type='button'
+          onClick={openEditor}
+          disabled={saving}
+          className='whitespace-nowrap font-medium hover:underline'
+          style={{ fontSize: 12, color: '#15803D', padding: '4px 2px' }}
+        >
+          Repor estoque
+        </button>
+      ) : (
+        <button
+          type='button'
+          onClick={() => onSet(0)}
+          disabled={saving}
+          title='Zerar o estoque e marcar como esgotado'
+          className='inline-flex items-center whitespace-nowrap font-medium rounded border'
+          style={{
+            gap: 4,
+            fontSize: 12,
+            color: '#DC2626',
+            borderColor: '#FECACA',
+            background: '#fff',
+            padding: '4px 8px',
+          }}
+        >
+          <PackageX size={12} />
+          Esgotar
+        </button>
+      )}
     </div>
   );
 }
