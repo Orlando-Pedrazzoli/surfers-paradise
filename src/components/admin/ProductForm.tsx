@@ -1,7 +1,7 @@
 // src/components/admin/ProductForm.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Reorder } from 'framer-motion';
 import Image from 'next/image';
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import QuickBrandModal from './QuickBrandModal';
 import QuickCategoryModal from './QuickCategoryModal';
+import ImageLightbox from './ImageLightbox';
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTES GERAIS
@@ -457,6 +458,10 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubcategoryModal, setShowSubcategoryModal] = useState(false);
+  // Visualizador de imagem ampliada (índice em form.images) e ponto onde
+  // o ponteiro desceu — distingue clique (ampliar) de arrasto (reordenar)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const imagePointerStart = useRef<{ x: number; y: number } | null>(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -1683,7 +1688,8 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
           <h2 className='text-lg font-semibold mb-1'>Imagens</h2>
           <p className='text-sm text-gray-500 mb-4'>
-            Arraste para reordenar. A primeira imagem será a thumbnail.
+            Clique numa imagem para ampliar. Arraste para reordenar. A primeira
+            imagem será a thumbnail.
           </p>
           <div className='mb-4'>
             <label className='flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#FF6600] hover:bg-orange-50 transition-colors'>
@@ -1720,6 +1726,22 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                   value={url}
                   className={`relative group rounded-lg overflow-hidden border-2 cursor-grab active:cursor-grabbing ${index === 0 ? 'border-[#FF6600]' : 'border-gray-200'}`}
                   style={{ width: 150, height: 150 }}
+                  title='Clique para ampliar · arraste para reordenar'
+                  onPointerDown={e => {
+                    imagePointerStart.current = { x: e.clientX, y: e.clientY };
+                  }}
+                  onClick={e => {
+                    const start = imagePointerStart.current;
+                    imagePointerStart.current = null;
+                    // Se o ponteiro se moveu, foi arrasto — não amplia
+                    if (
+                      start &&
+                      Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6
+                    ) {
+                      return;
+                    }
+                    setLightboxIndex(index);
+                  }}
                   whileDrag={{
                     scale: 1.05,
                     boxShadow: '0 8px 25px rgba(0,0,0,0.3)',
@@ -1734,15 +1756,27 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
                     className='w-full h-full object-cover pointer-events-none'
                     draggable={false}
                   />
-                  <div className='absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center'>
-                    <button
-                      type='button'
-                      onClick={() => removeImage(index)}
-                      className='text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600'
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
+                  <button
+                    type='button'
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => {
+                      e.stopPropagation();
+                      removeImage(index);
+                    }}
+                    aria-label={`Remover imagem ${index + 1}`}
+                    title='Remover imagem'
+                    className='absolute flex items-center justify-center rounded-full hover:bg-red-600'
+                    style={{
+                      top: 4,
+                      right: 4,
+                      width: 26,
+                      height: 26,
+                      background: '#EF4444',
+                      color: '#fff',
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
                   {index === 0 && (
                     <span className='absolute top-1 left-1 text-[10px] bg-[#FF6600] text-white px-1.5 py-0.5 rounded'>
                       Principal
@@ -2343,6 +2377,14 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
       </form>
 
       {/* MODAIS */}
+      {lightboxIndex !== null && form.images[lightboxIndex] && (
+        <ImageLightbox
+          images={form.images}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
       {showBrandModal && (
         <QuickBrandModal
           onClose={() => setShowBrandModal(false)}
