@@ -7,6 +7,10 @@ import { Reorder } from 'framer-motion';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import {
+  getProductsListUrl,
+  rememberLastEditedProduct,
+} from '@/lib/utils/adminProductsReturn';
+import {
   Upload,
   X,
   Store,
@@ -823,7 +827,12 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
 
       if (data.success) {
         toast.success(isEdit ? 'Produto atualizado!' : 'Produto criado!');
-        router.push('/admin/produtos');
+        // Volta para a lista como o admin a deixou (categoria, filtros,
+        // página) e rola até o produto recém-editado.
+        if (isEdit && initialData?._id) {
+          rememberLastEditedProduct(String(initialData._id));
+        }
+        router.push(getProductsListUrl());
       } else {
         toast.error(data.error || 'Erro ao salvar produto');
       }
@@ -2307,7 +2316,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           </button>
           <button
             type='button'
-            onClick={() => router.push('/admin/produtos')}
+            onClick={() => router.push(getProductsListUrl())}
             className='px-4 sm:px-6 py-3 sm:py-2.5 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors'
           >
             Cancelar

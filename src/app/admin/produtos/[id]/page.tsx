@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getProductsListUrl } from '@/lib/utils/adminProductsReturn';
 import ProductForm, {
   type ProductFormData,
 } from '@/components/admin/ProductForm';
@@ -26,11 +27,11 @@ export default function AdminProdutoEditPage({
           setProduct(data.product);
         } else {
           toast.error('Produto não encontrado');
-          router.push('/admin/produtos');
+          router.push(getProductsListUrl());
         }
       } catch {
         toast.error('Erro ao carregar produto');
-        router.push('/admin/produtos');
+        router.push(getProductsListUrl());
       } finally {
         setLoading(false);
       }

@@ -4,6 +4,9 @@
 // v3: controle de estoque por produto direto na lista — botão "Esgotar"
 //     (zera o estoque, com Desfazer) e edição rápida da quantidade
 //     tocando no número. Vale para a tabela (desktop) e os cards (mobile).
+// v4: memoriza filtros/página (sessionStorage) para o formulário voltar ao
+//     mesmo ponto depois de gravar; rola até o produto recém-editado e
+//     destaca-o por instantes.
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -31,6 +34,10 @@ import {
   EyeOff,
   Check,
 } from 'lucide-react';
+import {
+  rememberProductsListUrl,
+  consumeLastEditedProduct,
+} from '@/lib/utils/adminProductsReturn';
 
 interface ProductItem {
   _id: string;
@@ -106,6 +113,9 @@ export default function AdminProdutosPage() {
 
   // Estoque: ids com gravação em curso (bloqueia o controle da linha)
   const [stockSaving, setStockSaving] = useState<Set<string>>(new Set());
+
+  // Produto recém-editado (destaque temporário ao voltar do formulário)
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   // Mobile: painel de filtros recolhido por padrão
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -241,6 +251,32 @@ export default function AdminProdutosPage() {
   useEffect(() => {
     fetchFacets();
   }, []);
+
+  // Memoriza filtros/página atuais para o formulário saber para onde voltar
+  useEffect(() => {
+    rememberProductsListUrl(searchParams.toString());
+  }, [searchParams]);
+
+  // Ao voltar do formulário: rola até o produto editado e destaca-o
+  useEffect(() => {
+    if (loading || products.length === 0) return;
+    const id = consumeLastEditedProduct();
+    if (!id || !products.some(p => p._id === id)) return;
+
+    setHighlightId(id);
+    const scrollTimer = window.setTimeout(() => {
+      // Há duas cópias no DOM (card mobile + linha desktop): usa a visível
+      const el = Array.from(
+        document.querySelectorAll<HTMLElement>(`[data-product-id="${id}"]`),
+      ).find(node => node.offsetParent !== null);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 50);
+    const clearTimer = window.setTimeout(() => setHighlightId(null), 3500);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [loading, products]);
 
   // Sincroniza input quando URL muda externamente
   useEffect(() => {
@@ -848,7 +884,17 @@ export default function AdminProdutosPage() {
                 </label>
                 <ul className='divide-y divide-gray-100'>
                   {products.map(p => (
-                    <li key={p._id}>
+                    <li
+                      key={p._id}
+                      data-product-id={p._id}
+                      style={{
+                        transition: 'box-shadow 0.4s',
+                        boxShadow:
+                          highlightId === p._id
+                            ? 'inset 4px 0 0 #FF6600'
+                            : undefined,
+                      }}
+                    >
                       <ProductCard
                         product={p}
                         checked={selected.has(p._id)}
@@ -905,7 +951,15 @@ export default function AdminProdutosPage() {
                       return (
                         <tr
                           key={p._id}
+                          data-product-id={p._id}
                           className={`hover:bg-gray-50 ${isChecked ? 'bg-blue-50' : ''}`}
+                          style={{
+                            transition: 'box-shadow 0.4s',
+                            boxShadow:
+                              highlightId === p._id
+                                ? 'inset 4px 0 0 #FF6600'
+                                : undefined,
+                          }}
                         >
                           {/* CHECKBOX */}
                           <td className='p-3'>
