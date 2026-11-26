@@ -19,7 +19,9 @@ import {
   Circle,
   AlertCircle,
   Plus,
+  Copy,
 } from 'lucide-react';
+import Link from 'next/link';
 import QuickBrandModal from './QuickBrandModal';
 import QuickCategoryModal from './QuickCategoryModal';
 import ImageLightbox from './ImageLightbox';
@@ -362,6 +364,9 @@ export interface ProductFormData {
 interface ProductFormProps {
   mode: 'create' | 'edit';
   initialData?: ProductFormData;
+  // Modo "clonar": cria um produto novo pré-preenchido com os dados deste
+  // (mesma família). Só tem efeito em mode='create'.
+  cloneSource?: ProductFormData;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -384,6 +389,59 @@ function extractId(value: unknown): string {
     return String((value as { _id: unknown })._id);
   }
   return '';
+}
+
+// Slug da família a partir do nome, removendo cor/tamanho (mesma regra
+// usada no submit quando o campo "Nome da Família" fica em branco).
+function deriveFamilySlug(name: string, color?: string, size?: string): string {
+  let baseName = name;
+  if (color?.trim()) {
+    const escC = color.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    baseName = baseName.replace(new RegExp(escC, 'gi'), '').trim();
+  }
+  if (size?.trim()) {
+    const escS = size.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    baseName = baseName.replace(new RegExp(escS, 'gi'), '').trim();
+  }
+  baseName = baseName.replace(/\s*[-–—]\s*$/, '').trim();
+  return baseName ? generateSlug(baseName) : '';
+}
+
+// Troca a ÚLTIMA ocorrência de `from` por `to` em `text`, só quando `from`
+// aparece como "palavra" inteira (delimitada por início/fim ou por um
+// carácter não alfanumérico). Mantém maiúsculas/minúsculas do original.
+// Ex.: swapToken('Long John 4/3 M', 'M', 'G') → 'Long John 4/3 G'
+//      swapToken('SP-LJ43-M', 'M', 'G')       → 'SP-LJ43-G'
+function swapToken(text: string, from: string, to: string): string {
+  if (!text || !from || !to || from === to) return text;
+  const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[^A-Za-z0-9])(${esc})(?=$|[^A-Za-z0-9])`, 'gi');
+  const matches = Array.from(text.matchAll(re));
+  if (matches.length === 0) return text;
+  const last = matches[matches.length - 1];
+  const found = last[2];
+  const start = (last.index ?? 0) + last[1].length;
+  const replacement =
+    found === found.toUpperCase() && found !== found.toLowerCase()
+      ? to.toUpperCase()
+      : found === found.toLowerCase() && found !== found.toUpperCase()
+        ? to.toLowerCase()
+        : to;
+  return text.slice(0, start) + replacement + text.slice(start + found.length);
+}
+
+// Dados iniciais de um clone: tudo igual ao original, exceto o que é
+// próprio de cada variante (estoque, código de barras, principal).
+function buildCloneSeed(src: ProductFormData): ProductFormData {
+  return {
+    ...src,
+    _id: undefined,
+    stock: 0,
+    gtin: '',
+    isMainVariant: false,
+    productFamily:
+      src.productFamily || deriveFamilySlug(src.name, src.color, src.size),
+  };
 }
 
 // Arredonda a 2 casas decimais de forma estável (evita erros de float).
@@ -445,9 +503,22 @@ function evaluateCompletion(form: {
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════
 
-export default function ProductForm({ mode, initialData }: ProductFormProps) {
+export default function ProductForm({
+  mode,
+  initialData,
+  cloneSource,
+}: ProductFormProps) {
   const router = useRouter();
   const isEdit = mode === 'edit';
+  const isClone = !isEdit && !!cloneSource;
+  // Fonte dos valores iniciais do formulário
+  const seed = isClone ? buildCloneSeed(cloneSource) : initialData;
+  // Ação escolhida no submit (gravar e voltar à lista OU gravar e clonar
+  // o próximo tamanho/cor da família)
+  const submitIntent = useRef<'save' | 'clone-next'>('save');
+  // Campos que o admin editou à mão no clone — a sugestão automática
+  // (troca do tamanho/cor no nome, slug e SKU) deixa de mexer neles.
+  const touched = useRef({ name: false, slug: false, sku: false });
 
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -465,70 +536,114 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
 
   // Form state
   const [form, setForm] = useState({
-    name: initialData?.name || '',
-    slug: initialData?.slug || '',
-    description: initialData?.description || '',
-    richDescription: initialData?.richDescription || '',
-    sku: initialData?.sku || '',
-    price: initialData?.price || 0,
-    compareAtPrice: initialData?.compareAtPrice || 0,
-    costPrice: initialData?.costPrice || 0,
-    category: extractId(initialData?.category),
-    subcategory: extractId(initialData?.subcategory),
-    brand: extractId(initialData?.brand),
-    images: initialData?.images || [],
-    thumbnail: initialData?.thumbnail || '',
-    stock: initialData?.stock || 0,
-    weight: initialData?.weight || 0,
-    dimensions: initialData?.dimensions || { length: 0, width: 0, height: 0 },
-    tags: Array.isArray(initialData?.tags)
-      ? initialData.tags.join(', ')
-      : (initialData?.tags as string) || '',
-    isActive: initialData?.isActive ?? true,
-    isFeatured: initialData?.isFeatured ?? false,
-    isNewArrival: initialData?.isNewArrival ?? false,
-    isOnSale: initialData?.isOnSale ?? false,
-    salePercentage: initialData?.salePercentage || 0,
-    seoTitle: initialData?.seoTitle || '',
-    seoDescription: initialData?.seoDescription || '',
-    isAvailableInStore: initialData?.isAvailableInStore ?? true,
-    isPublishedOnline: initialData?.isPublishedOnline ?? false,
-    gtin: initialData?.gtin || '',
-    ncm: initialData?.ncm || '',
-    origin: initialData?.origin || '0',
-    cest: initialData?.cest || '',
-    supplier: extractId(initialData?.supplier),
-    supplierProductCode: initialData?.supplierProductCode || '',
+    name: seed?.name || '',
+    slug: seed?.slug || '',
+    description: seed?.description || '',
+    richDescription: seed?.richDescription || '',
+    sku: seed?.sku || '',
+    price: seed?.price || 0,
+    compareAtPrice: seed?.compareAtPrice || 0,
+    costPrice: seed?.costPrice || 0,
+    category: extractId(seed?.category),
+    subcategory: extractId(seed?.subcategory),
+    brand: extractId(seed?.brand),
+    images: seed?.images || [],
+    thumbnail: seed?.thumbnail || '',
+    stock: seed?.stock || 0,
+    weight: seed?.weight || 0,
+    dimensions: seed?.dimensions || { length: 0, width: 0, height: 0 },
+    tags: Array.isArray(seed?.tags)
+      ? seed.tags.join(', ')
+      : (seed?.tags as string) || '',
+    isActive: seed?.isActive ?? true,
+    isFeatured: seed?.isFeatured ?? false,
+    isNewArrival: seed?.isNewArrival ?? false,
+    isOnSale: seed?.isOnSale ?? false,
+    salePercentage: seed?.salePercentage || 0,
+    seoTitle: seed?.seoTitle || '',
+    seoDescription: seed?.seoDescription || '',
+    isAvailableInStore: seed?.isAvailableInStore ?? true,
+    isPublishedOnline: seed?.isPublishedOnline ?? false,
+    gtin: seed?.gtin || '',
+    ncm: seed?.ncm || '',
+    origin: seed?.origin || '0',
+    cest: seed?.cest || '',
+    supplier: extractId(seed?.supplier),
+    supplierProductCode: seed?.supplierProductCode || '',
     // Quilhas
-    setup: initialData?.setup || '',
-    construction: initialData?.construction || '',
-    template: initialData?.template || '',
+    setup: seed?.setup || '',
+    construction: seed?.construction || '',
+    template: seed?.template || '',
     // Wetsuits
-    wetsuitType: initialData?.wetsuitType || '',
-    thickness: initialData?.thickness || '',
-    gender: initialData?.gender || '',
-    wetsuitLine: initialData?.wetsuitLine || '',
-    zipperType: initialData?.zipperType || '',
+    wetsuitType: seed?.wetsuitType || '',
+    thickness: seed?.thickness || '',
+    gender: seed?.gender || '',
+    wetsuitLine: seed?.wetsuitLine || '',
+    zipperType: seed?.zipperType || '',
   });
 
   // Family state
-  const [productFamily, setProductFamily] = useState(
-    initialData?.productFamily || '',
-  );
-  const [hasColor, setHasColor] = useState(!!initialData?.color);
-  const [color, setColor] = useState(initialData?.color || '');
-  const [colorCode, setColorCode] = useState(
-    initialData?.colorCode || '#000000',
-  );
-  const [isDualColor, setIsDualColor] = useState(!!initialData?.colorCode2);
-  const [colorCode2, setColorCode2] = useState(
-    initialData?.colorCode2 || '#2563EB',
-  );
-  const [hasSize, setHasSize] = useState(!!initialData?.size);
-  const [sizeValue, setSizeValue] = useState(initialData?.size || '');
+  const [productFamily, setProductFamily] = useState(seed?.productFamily || '');
+  const [hasColor, setHasColor] = useState(!!seed?.color);
+  const [color, setColor] = useState(seed?.color || '');
+  const [colorCode, setColorCode] = useState(seed?.colorCode || '#000000');
+  const [isDualColor, setIsDualColor] = useState(!!seed?.colorCode2);
+  const [colorCode2, setColorCode2] = useState(seed?.colorCode2 || '#2563EB');
+  const [hasSize, setHasSize] = useState(!!seed?.size);
+  const [sizeValue, setSizeValue] = useState(seed?.size || '');
   const [isMainVariant, setIsMainVariant] = useState(
-    initialData?.isMainVariant ?? true,
+    seed?.isMainVariant ?? true,
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  // CLONE — sugestão automática de nome, slug e SKU
+  // ═══════════════════════════════════════════════════════════════
+  // Ao trocar o tamanho/cor no clone, substitui o valor antigo pelo novo
+  // no nome, slug e SKU do original (ex.: "...-M" → "...-G"). Se o slug
+  // não tiver o tamanho, acrescenta-o no fim para não repetir o original.
+  const currentSize = hasSize ? sizeValue.trim() : '';
+  const currentColor = hasColor ? color.trim() : '';
+
+  useEffect(() => {
+    if (!isClone || !cloneSource) return;
+    const pairs: Array<[string, string]> = [];
+    if (cloneSource.size && currentSize)
+      pairs.push([cloneSource.size, currentSize]);
+    if (cloneSource.color && currentColor)
+      pairs.push([cloneSource.color, currentColor]);
+
+    let name = cloneSource.name;
+    let sku = cloneSource.sku;
+    let slug = cloneSource.slug;
+    const suffix: string[] = [];
+
+    for (const [from, to] of pairs) {
+      if (from.toLowerCase() === to.toLowerCase()) continue;
+      name = swapToken(name, from, to);
+      // SKU: tenta o valor exato e a versão só alfanumérica (6'0 → 60)
+      const nextSku = swapToken(sku, from, to);
+      sku =
+        nextSku !== sku
+          ? nextSku
+          : swapToken(
+              sku,
+              from.replace(/[^A-Za-z0-9]/g, ''),
+              to.replace(/[^A-Za-z0-9]/g, ''),
+            );
+      const nextSlug = swapToken(slug, generateSlug(from), generateSlug(to));
+      if (nextSlug !== slug) slug = nextSlug;
+      else suffix.push(generateSlug(to));
+    }
+    if (suffix.length) slug = `${slug}-${suffix.join('-')}`;
+
+    setForm(prev => ({
+      ...prev,
+      name: touched.current.name ? prev.name : name,
+      // Nome editado à mão → o slug já acompanha o nome (handleNameChange)
+      slug: touched.current.slug || touched.current.name ? prev.slug : slug,
+      sku: touched.current.sku ? prev.sku : sku,
+    }));
+  }, [isClone, cloneSource, currentSize, currentColor]);
 
   const completion = evaluateCompletion(form);
 
@@ -594,6 +709,7 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     categories.find(c => c._id === form.category)?.name || '';
 
   const handleNameChange = (name: string) => {
+    touched.current.name = true;
     if (isEdit) {
       setForm(prev => ({ ...prev, name }));
     } else {
@@ -761,6 +877,18 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
       return;
     }
 
+    // Clone: slug e SKU são únicos — não podem ficar iguais ao original
+    if (isClone && cloneSource) {
+      if (form.sku.trim().toLowerCase() === cloneSource.sku.toLowerCase()) {
+        toast.error('Altere o SKU — está igual ao do produto original');
+        return;
+      }
+      if ((form.slug || generateSlug(form.name)) === cloneSource.slug) {
+        toast.error('Altere o slug — está igual ao do produto original');
+        return;
+      }
+    }
+
     if (form.isPublishedOnline && completion.status !== 'complete') {
       toast.error(
         'Produto incompleto não pode ser publicado online. Desligue o toggle "Publicar no site" ou complete os dados.',
@@ -837,6 +965,16 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         if (isEdit && initialData?._id) {
           rememberLastEditedProduct(String(initialData._id));
         }
+        // "Salvar e clonar próximo": abre já o clone do produto acabado de
+        // gravar, para cadastrar o tamanho/cor seguinte da família.
+        const savedId = data.product?._id || initialData?._id;
+        if (submitIntent.current === 'clone-next' && savedId) {
+          router.push(`/admin/produtos/novo?clonar=${savedId}`);
+          return;
+        }
+        if (!isEdit && data.product?._id) {
+          rememberLastEditedProduct(String(data.product._id));
+        }
         router.push(getProductsListUrl());
       } else {
         toast.error(data.error || 'Erro ao salvar produto');
@@ -891,9 +1029,87 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
     <div>
       <div className='hidden lg:flex items-center justify-between mb-6'>
         <h1 className='text-2xl font-bold'>
-          {isEdit ? 'Editar Produto' : 'Novo Produto'}
+          {isEdit
+            ? 'Editar Produto'
+            : isClone
+              ? 'Novo Produto (clone)'
+              : 'Novo Produto'}
         </h1>
       </div>
+
+      {/* EDITAR → atalho para clonar (nova variante da mesma família) */}
+      {isEdit && initialData?._id && (
+        <div
+          className='flex items-center justify-between gap-3 bg-white rounded-lg shadow-sm mb-4'
+          style={{ padding: '12px 16px' }}
+        >
+          <p className='text-sm text-gray-600'>
+            Vai cadastrar outro tamanho ou cor deste produto?
+          </p>
+          <Link
+            href={`/admin/produtos/novo?clonar=${initialData._id}`}
+            className='inline-flex items-center gap-2 text-sm font-medium rounded-md shrink-0'
+            style={{
+              padding: '8px 14px',
+              background: '#FFF4EC',
+              color: '#FF6600',
+              border: '1px solid #FFD2B3',
+            }}
+          >
+            <Copy size={16} />
+            Clonar
+          </Link>
+        </div>
+      )}
+
+      {/* CLONE → aviso do que mudar */}
+      {isClone && cloneSource && (
+        <div
+          className='rounded-lg mb-4'
+          style={{
+            padding: '14px 16px',
+            background: '#FFF4EC',
+            border: '2px solid #FF6600',
+          }}
+        >
+          <div className='flex items-start gap-3'>
+            <Copy
+              size={20}
+              className='shrink-0'
+              style={{ color: '#FF6600', marginTop: 2 }}
+            />
+            <div className='min-w-0'>
+              <p className='text-sm font-semibold' style={{ color: '#9A3D00' }}>
+                Clonado de: {cloneSource.name}
+              </p>
+              <p className='text-sm mt-1' style={{ color: '#9A3D00' }}>
+                Todos os dados foram copiados. Escolha o novo{' '}
+                <strong>tamanho/cor</strong> na secção Família — o nome, slug e
+                SKU são sugeridos automaticamente. Confira o{' '}
+                <strong>SKU</strong>, o <strong>slug</strong> e o{' '}
+                <strong>estoque</strong> (começa em 0) antes de salvar.
+              </p>
+              <p className='text-xs mt-2' style={{ color: '#B45309' }}>
+                Original: SKU {cloneSource.sku}
+                {cloneSource.size ? ` · Tamanho ${cloneSource.size}` : ''}
+                {cloneSource.color ? ` · Cor ${cloneSource.color}` : ''}
+              </p>
+              <button
+                type='button'
+                onClick={() =>
+                  document
+                    .getElementById('familia-variantes')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                className='text-sm font-medium mt-2 underline'
+                style={{ color: '#FF6600' }}
+              >
+                Ir para Tamanho / Cor ↓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className='space-y-4 sm:space-y-6'>
         {/* STATUS */}
@@ -1042,9 +1258,22 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               <input
                 type='text'
                 value={form.slug}
-                onChange={e => setForm({ ...form, slug: e.target.value })}
+                onChange={e => {
+                  touched.current.slug = true;
+                  setForm({ ...form, slug: e.target.value });
+                }}
                 className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                style={
+                  isClone
+                    ? { borderColor: '#FF6600', borderWidth: 2 }
+                    : undefined
+                }
               />
+              {isClone && cloneSource && (
+                <p className='text-xs mt-1' style={{ color: '#B45309' }}>
+                  Original: {cloneSource.slug}
+                </p>
+              )}
             </div>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
@@ -1053,10 +1282,23 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               <input
                 type='text'
                 value={form.sku}
-                onChange={e => setForm({ ...form, sku: e.target.value })}
+                onChange={e => {
+                  touched.current.sku = true;
+                  setForm({ ...form, sku: e.target.value });
+                }}
                 required
                 className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6600]'
+                style={
+                  isClone
+                    ? { borderColor: '#FF6600', borderWidth: 2 }
+                    : undefined
+                }
               />
+              {isClone && cloneSource && (
+                <p className='text-xs mt-1' style={{ color: '#B45309' }}>
+                  Original: {cloneSource.sku}
+                </p>
+              )}
             </div>
             <div className='md:col-span-2'>
               <label className='block text-sm font-medium text-gray-700 mb-1'>
@@ -1893,7 +2135,15 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
         </div>
 
         {/* FAMÍLIA DE PRODUTOS */}
-        <div className='bg-white rounded-lg shadow-sm p-4 sm:p-6'>
+        <div
+          id='familia-variantes'
+          className='bg-white rounded-lg shadow-sm p-4 sm:p-6'
+          style={
+            isClone
+              ? { border: '2px solid #FF6600', scrollMarginTop: 80 }
+              : { scrollMarginTop: 80 }
+          }
+        >
           <h2 className='text-lg font-semibold mb-2'>
             Família de Produtos (Variantes)
           </h2>
@@ -2340,6 +2590,9 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
           <button
             type='submit'
             disabled={saving}
+            onClick={() => {
+              submitIntent.current = 'save';
+            }}
             className='flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-2.5 bg-[#FF6600] text-white font-medium rounded-md hover:bg-[#e55b00] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
           >
             {saving
@@ -2347,6 +2600,27 @@ export default function ProductForm({ mode, initialData }: ProductFormProps) {
               : isEdit
                 ? 'Atualizar Produto'
                 : 'Criar Produto'}
+          </button>
+          {/* Grava e abre logo o clone para a próxima variante da família */}
+          <button
+            type='submit'
+            disabled={saving}
+            onClick={() => {
+              submitIntent.current = 'clone-next';
+            }}
+            title='Salva este produto e abre um clone para cadastrar o próximo tamanho/cor'
+            className='flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 sm:px-5 py-3 sm:py-2.5 font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+            style={{
+              background: '#FFF4EC',
+              color: '#FF6600',
+              border: '1px solid #FF6600',
+            }}
+          >
+            <Copy size={16} />
+            <span className='sm:hidden'>Salvar + clonar</span>
+            <span className='hidden sm:inline'>
+              {isEdit ? 'Atualizar e clonar' : 'Salvar e clonar próximo'}
+            </span>
           </button>
           <button
             type='button'

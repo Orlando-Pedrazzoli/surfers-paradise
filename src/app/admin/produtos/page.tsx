@@ -7,6 +7,8 @@
 // v4: memoriza filtros/página (sessionStorage) para o formulário voltar ao
 //     mesmo ponto depois de gravar; rola até o produto recém-editado e
 //     destaca-o por instantes.
+// v5: atalho "Clonar" por produto (tabela e cards) — abre um produto novo
+//     pré-preenchido para cadastrar outra variante da mesma família.
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -17,6 +19,7 @@ import toast from 'react-hot-toast';
 import {
   Plus,
   Pencil,
+  Copy,
   Trash2,
   Package,
   Search,
@@ -1088,6 +1091,13 @@ export default function AdminProdutosPage() {
                               >
                                 <Pencil size={16} />
                               </Link>
+                              <Link
+                                href={`/admin/produtos/novo?clonar=${p._id}`}
+                                className='p-2 text-gray-400 hover:text-[#FF6600] transition-colors'
+                                title='Clonar (novo tamanho/cor da família)'
+                              >
+                                <Copy size={16} />
+                              </Link>
                               <button
                                 onClick={() =>
                                   handleDeleteSingle(p._id, p.name)
@@ -1267,12 +1277,28 @@ function ProductCard({
         <span className='text-[11px] text-gray-400 uppercase tracking-wide'>
           Estoque
         </span>
-        <StockControl
-          stock={p.stock}
-          saving={stockSaving}
-          onSet={onSetStock}
-          layout='row'
-        />
+        <div className='flex items-center gap-2'>
+          <Link
+            href={`/admin/produtos/novo?clonar=${p._id}`}
+            className='inline-flex items-center gap-1 text-xs font-medium rounded-md'
+            style={{
+              padding: '6px 10px',
+              background: '#FFF4EC',
+              color: '#FF6600',
+              border: '1px solid #FFD2B3',
+            }}
+            aria-label={`Clonar ${p.name}`}
+          >
+            <Copy size={14} />
+            Clonar
+          </Link>
+          <StockControl
+            stock={p.stock}
+            saving={stockSaving}
+            onSet={onSetStock}
+            layout='row'
+          />
+        </div>
       </div>
     </div>
   );
